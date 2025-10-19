@@ -1,0 +1,35 @@
+# Node
+node_modules/
+booking-system-frontend/node_modules/
+booking-system-frontend/dist/
+booking-system-frontend/*.tsbuildinfo
+booking-system-frontend/vite.config.js
+booking-system-frontend/vite.config.d.ts
+booking-system-frontend/vitest.config.js
+booking-system-frontend/vitest.config.d.ts
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Go
+booking-system-backend/bin/
+booking-system-backend/vendor/
+
+# Environment
+*.env
+.env
+booking-system-backend/.env
+booking-system-frontend/.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
