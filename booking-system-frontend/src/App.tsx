@@ -27,6 +27,8 @@ function AppNavLink({ to, label }: { to: string; label: string }) {
 
 export default function App(): JSX.Element {
   const initialize = useAppStore((state) => state.initialize);
+  const user = useAppStore((s) => s.user);
+  const logout = useAppStore((s) => s.logout);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -45,14 +47,21 @@ export default function App(): JSX.Element {
                   <AppNavLink to="/providers" label="Providers" />
                   <AppNavLink to="/booking" label="Booking" />
                   <AppNavLink to="/services" label="Services" />
-                  <AppNavLink to="/admin" label="Admin" />
+                  {user?.role === 'admin' && <AppNavLink to="/admin" label="Admin" />}
                 </nav>
             </div>
 
             <div className="flex items-center gap-2">
-                <div className="hidden md:block">
-                <AppNavLink to="/login" label="Login" />
-              </div>
+                {user ? (
+                  <div className="hidden items-center gap-3 md:flex">
+                    <span className="text-sm text-slate-700">{user.name ?? user.email}</span>
+                    <button onClick={() => logout()} className="rounded bg-red-50 px-3 py-1 text-sm text-red-600">Logout</button>
+                  </div>
+                ) : (
+                  <div className="hidden md:block">
+                    <AppNavLink to="/login" label="Login" />
+                  </div>
+                )}
               <button
                 aria-label="Toggle menu"
                 onClick={() => setOpen((v) => !v)}
@@ -72,7 +81,7 @@ export default function App(): JSX.Element {
                 <NavLink to="/providers" onClick={() => setOpen(false)} className="py-2">Providers</NavLink>
                 <NavLink to="/booking" onClick={() => setOpen(false)} className="py-2">Booking</NavLink>
                 <NavLink to="/services" onClick={() => setOpen(false)} className="py-2">Services</NavLink>
-                <NavLink to="/admin" onClick={() => setOpen(false)} className="py-2">Admin</NavLink>
+                {user?.role === 'admin' && <NavLink to="/admin" onClick={() => setOpen(false)} className="py-2">Admin</NavLink>}
                 <NavLink to="/login" onClick={() => setOpen(false)} className="py-2">Login</NavLink>
               </div>
             </div>

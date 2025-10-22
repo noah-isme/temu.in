@@ -37,3 +37,15 @@ func (r *Repository) FindByID(id uint) (*models.User, error) {
     }
     return &u, nil
 }
+
+func (r *Repository) SetRole(id uint, role string) error {
+    return r.db.Model(&models.User{}).Where("id = ?", id).Update("role", role).Error
+}
+
+func (r *Repository) ListAll() ([]models.User, error) {
+    var users []models.User
+    if err := r.db.Select("id, email, name, role").Find(&users).Error; err != nil {
+        return nil, err
+    }
+    return users, nil
+}

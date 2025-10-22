@@ -17,17 +17,7 @@ export default function ProvidersList(): JSX.Element {
     onError: () => toast.error('Booking failed')
   });
 
-  async function handleBook(providerId: string) {
-    setLoading(true);
-    try {
-      const booking = await createBooking({ providerId, customerName: 'Demo User' });
-      // eslint-disable-next-line no-console
-      console.log('Booking created', booking);
-      alert(`Booking confirmed: ${booking.id}`);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // booking is handled via bookingMutation above
 
   return (
     <section>

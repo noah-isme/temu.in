@@ -16,7 +16,10 @@ import (
 	"github.com/temu-in/temu.in/booking-system-backend/internal/models"
 	authhandler "github.com/temu-in/temu.in/booking-system-backend/internal/auth"
 	"github.com/temu-in/temu.in/booking-system-backend/internal/user"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/admin"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/audit"
 	"github.com/temu-in/temu.in/booking-system-backend/internal/seeder"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/token"
 )
 
 type Server struct {
@@ -65,13 +68,19 @@ func (s *Server) connectDatabase() error {
 
 	s.db = db
 	// auto-migrate core models
-	if err := s.db.AutoMigrate(&models.User{}); err != nil {
+	if err := s.db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.AdminAudit{}); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
 	// register auth routes after DB connected
 	repo := user.NewRepository(s.db)
-	h := authhandler.NewHandler(repo, s.cfg)
+	var tokenRepo *token.Repository
+	if s.cache != nil {
+		tokenRepo = token.NewRepositoryWithCache(s.db, s.cache)
+	} else {
+		tokenRepo = token.NewRepository(s.db)
+	}
+	h := authhandler.NewHandler(repo, s.cfg, tokenRepo)
 	api := s.router.Group("/api")
 	h.RegisterRoutes(api.Group("/auth"))
 
@@ -80,9 +89,30 @@ func (s *Server) connectDatabase() error {
 		return fmt.Errorf("seed admin: %w", err)
 	}
 
-	// register /api/me
-	userHandler := user.NewHandler(repo)
-	userHandler.RegisterRoutes(api.Group("/"), s.cfg.JWTSecret)
+	// register /api/me (inline to avoid import cycles)
+	api.GET("/me", authhandler.Middleware(s.cfg.JWTSecret), func(c *gin.Context) {
+		v, ok := c.Get(authhandler.UserContextKey)
+		if !ok {
+			c.JSON(401, gin.H{"error": "unauthenticated"})
+			return
+		}
+		claims, ok := v.(*authhandler.Claims)
+		if !ok {
+			c.JSON(500, gin.H{"error": "internal"})
+			return
+		}
+		u, err := repo.FindByID(claims.UserID)
+		if err != nil || u == nil {
+			c.JSON(500, gin.H{"error": "internal"})
+			return
+		}
+		c.JSON(200, gin.H{"user": gin.H{"id": u.ID, "email": u.Email, "role": u.Role, "name": u.Name}})
+	})
+
+	// admin endpoints
+	auditRepo := audit.NewRepository(s.db)
+	adminHandler := admin.NewHandler(repo, auditRepo)
+	adminHandler.RegisterRoutes(api.Group("/"), s.cfg.JWTSecret)
 
 	// sample admin-only route
 	adminGroup := api.Group("/admin")

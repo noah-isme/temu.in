@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { login, setAuthToken, getAuthToken } from '../api';
+import { useAppStore } from '../store/app-store';
 import toast from '../lib/toast';
 
 export default function LoginForm({ onLogin }: { onLogin?: (token: string) => void }) {
@@ -13,6 +14,8 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
     setToken(getAuthToken());
   }, []);
 
+  const initialize = useAppStore((s) => s.initialize);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -24,6 +27,8 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
       setAuthToken(data.token);
       setToken(data.token);
   if (onLogin) onLogin(data.token);
+    // refresh user state
+    try { await initialize(); } catch {}
   toast.success('Login success (mock)');
     } catch (err: any) {
   const msg = err?.response?.data?.message || 'Login failed';
