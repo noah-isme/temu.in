@@ -13,6 +13,10 @@ import (
 
 	"github.com/temu-in/temu.in/booking-system-backend/internal/config"
 	"github.com/temu-in/temu.in/booking-system-backend/internal/health"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/models"
+	authhandler "github.com/temu-in/temu.in/booking-system-backend/internal/auth"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/user"
+	"github.com/temu-in/temu.in/booking-system-backend/internal/seeder"
 )
 
 type Server struct {
@@ -60,6 +64,31 @@ func (s *Server) connectDatabase() error {
 	}
 
 	s.db = db
+	// auto-migrate core models
+	if err := s.db.AutoMigrate(&models.User{}); err != nil {
+		return fmt.Errorf("auto migrate: %w", err)
+	}
+
+	// register auth routes after DB connected
+	repo := user.NewRepository(s.db)
+	h := authhandler.NewHandler(repo, s.cfg)
+	api := s.router.Group("/api")
+	h.RegisterRoutes(api.Group("/auth"))
+
+	// seed admin if requested
+	if err := seeder.SeedAdmin(s.db); err != nil {
+		return fmt.Errorf("seed admin: %w", err)
+	}
+
+	// register /api/me
+	userHandler := user.NewHandler(repo)
+	userHandler.RegisterRoutes(api.Group("/"), s.cfg.JWTSecret)
+
+	// sample admin-only route
+	adminGroup := api.Group("/admin")
+	adminGroup.Use(authhandler.Middleware(s.cfg.JWTSecret), authhandler.RequireRole("admin"))
+	adminGroup.GET("/stats", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "users": 42}) })
+
 	return nil
 }
 

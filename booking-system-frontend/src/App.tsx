@@ -1,69 +1,109 @@
 
-import { useEffect } from 'react';
-import { Calendar, Clock, Mail, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { useAppStore } from './store/app-store';
+import PageTransition from './components/PageTransition';
+import HomePage from './pages/HomePage';
+import ProvidersPage from './pages/ProvidersPage';
+import BookingPage from './pages/BookingPage';
+import ServicesPage from './pages/ServicesPage';
+import AdminPage from './pages/AdminPage';
+import LoginPage from './pages/LoginPage';
+import RequireAuth from './components/RequireAuth';
+import { FEATURES, Feature } from './shared/features';
 
-const FEATURES = [
-  {
-    icon: Calendar,
-    title: 'Smart Scheduling',
-    description: 'Kelola ketersediaan provider dan booking pelanggan dalam satu kalender terpadu.'
-  },
-  {
-    icon: Clock,
-    title: 'Real-time Availability',
-    description: 'Slot booking otomatis ter-update untuk mencegah double booking dan konflik jadwal.'
-  },
-  {
-    icon: Mail,
-    title: 'Automated Notifications',
-    description: 'Kirim email konfirmasi, pengingat, dan reschedule menggunakan SendGrid.'
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Secure Payments',
-    description: 'Integrasi Midtrans Snap memastikan transaksi aman dan mudah.'
-  }
-];
-
-function FeatureCard({ icon: Icon, title, description }: (typeof FEATURES)[number]) {
+function AppNavLink({ to, label }: { to: string; label: string }) {
   return (
-    <article className="rounded-xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-        <Icon className="h-6 w-6" aria-hidden />
-      </div>
-      <h3 className="mb-2 text-lg font-semibold text-card-foreground">{title}</h3>
-      <p className="text-sm text-muted-foreground">{description}</p>
-    </article>
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `rounded-md px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-primary text-white' : 'text-slate-700 hover:bg-slate-100'}`
+      }
+    >
+      {label}
+    </NavLink>
   );
 }
 
 export default function App(): JSX.Element {
   const initialize = useAppStore((state) => state.initialize);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white to-slate-50">
-      <section className="mx-auto flex max-w-5xl flex-col gap-12 px-6 py-16 md:py-24">
-        <header className="text-center">
-          <p className="text-sm font-medium uppercase tracking-[0.3em] text-primary">Temu.in Platform</p>
-          <h1 className="mt-4 text-4xl font-bold text-slate-900 sm:text-5xl">
-            Inisialisasi Monorepo Booking System
-          </h1>
-          <p className="mt-4 text-lg text-slate-600">
-            Fondasi frontend React + TypeScript siap dikembangkan dengan Tailwind, Zustand, dan shadcn/ui.
-          </p>
+    <BrowserRouter>
+      <main className="min-h-screen bg-gradient-to-b from-white to-slate-50">
+        <header className="border-b bg-white">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-lg font-bold">Temu.in</h3>
+              <nav className="hidden items-center gap-2 md:flex">
+                  <AppNavLink to="/" label="Home" />
+                  <AppNavLink to="/providers" label="Providers" />
+                  <AppNavLink to="/booking" label="Booking" />
+                  <AppNavLink to="/services" label="Services" />
+                  <AppNavLink to="/admin" label="Admin" />
+                </nav>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <div className="hidden md:block">
+                <AppNavLink to="/login" label="Login" />
+              </div>
+              <button
+                aria-label="Toggle menu"
+                onClick={() => setOpen((v) => !v)}
+                className="inline-flex items-center rounded-md p-2 text-slate-700 hover:bg-slate-100 md:hidden"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {open && (
+            <div className="md:hidden border-t bg-white">
+              <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3">
+                <NavLink to="/" onClick={() => setOpen(false)} className="py-2">Home</NavLink>
+                <NavLink to="/providers" onClick={() => setOpen(false)} className="py-2">Providers</NavLink>
+                <NavLink to="/booking" onClick={() => setOpen(false)} className="py-2">Booking</NavLink>
+                <NavLink to="/services" onClick={() => setOpen(false)} className="py-2">Services</NavLink>
+                <NavLink to="/admin" onClick={() => setOpen(false)} className="py-2">Admin</NavLink>
+                <NavLink to="/login" onClick={() => setOpen(false)} className="py-2">Login</NavLink>
+              </div>
+            </div>
+          )}
         </header>
 
-        <section className="grid gap-6 sm:grid-cols-2">
-          {FEATURES.map((feature) => (
-            <FeatureCard key={feature.title} {...feature} />
-          ))}
-        </section>
-      </section>
-    </main>
+        <PageTransition>
+          <div className="mx-auto max-w-6xl px-6 py-12">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/providers" element={<ProvidersPage />} />
+              <Route path="/booking" element={<BookingPage />} />
+              <Route path="/services" element={<ServicesPage />} />
+              <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
+              <Route path="/login" element={<LoginPage />} />
+            </Routes>
+
+            <section className="mt-12 grid gap-6 sm:grid-cols-2">
+              {FEATURES.map((feature: Feature) => (
+                <article key={feature.title} className="rounded-xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <feature.icon className="h-6 w-6" aria-hidden />
+                  </div>
+                  <h3 className="mb-2 text-lg font-semibold text-card-foreground">{feature.title}</h3>
+                  <p className="text-sm text-muted-foreground">{feature.description}</p>
+                </article>
+              ))}
+            </section>
+          </div>
+        </PageTransition>
+      </main>
+    </BrowserRouter>
   );
 }

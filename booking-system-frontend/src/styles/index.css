@@ -17,3 +17,41 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Toastify customizations */
+.toastify-toast {
+  background: white;
+  border: 1px solid rgba(15,23,42,0.06);
+  box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+  color: #0f172a;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.Toastify__progress-bar {
+  background: linear-gradient(90deg,#06b6d4,#7c3aed);
+}
+
+/* Fallback variant backgrounds for AnimatedToast (in case tailwind classes not applied) */
+.toast-variant-success { background: #ecfdf5; border-color: #bbf7d0; color: #065f46; }
+.toast-variant-info { background: #eef2ff; border-color: #c7d2fe; color: #1e3a8a; }
+.toast-variant-warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.toast-variant-error { background: #fff1f2; border-color: #fecaca; color: #7f1d1d; }
+
+/* Skeleton/animation helpers */
+.animate-pulse {
+  animation: pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.55; }
+  100% { opacity: 1; }
+}
+
+/* smoother button transitions */
+.btn-transition {
+  transition: background-color 160ms ease, transform 120ms ease;
+}
+.btn-transition:active { transform: translateY(1px); }
+

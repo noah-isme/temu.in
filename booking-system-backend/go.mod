@@ -12,6 +12,7 @@ require (
 	github.com/redis/go-redis/v9 v9.6.1
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.10
+	github.com/golang-jwt/jwt/v5 v5.0.3
 )
 
 require (
