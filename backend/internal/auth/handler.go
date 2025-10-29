@@ -11,10 +11,10 @@ import (
     "github.com/gin-gonic/gin"
     "golang.org/x/crypto/bcrypt"
 
-    "github.com/temu-in/temu.in/booking-system-backend/internal/user"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/models"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/config"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/token"
+    "github.com/temu-in/temu.in/backend/internal/user"
+    "github.com/temu-in/temu.in/backend/internal/models"
+    "github.com/temu-in/temu.in/backend/internal/config"
+    "github.com/temu-in/temu.in/backend/internal/token"
 )
 
 type Handler struct {

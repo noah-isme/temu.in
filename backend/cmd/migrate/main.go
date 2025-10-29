@@ -4,11 +4,11 @@ import (
     "log"
 
     "github.com/joho/godotenv"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/config"
+    "github.com/temu-in/temu.in/backend/internal/config"
     "gorm.io/driver/postgres"
     "gorm.io/gorm"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/models"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/seeder"
+    "github.com/temu-in/temu.in/backend/internal/models"
+    "github.com/temu-in/temu.in/backend/internal/seeder"
 )
 
 func main() {

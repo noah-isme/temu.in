@@ -13,7 +13,7 @@
 Fokus: struktur repo, environment, containerization, reverse proxy, tooling lint/test/build.
 
 :::task-stub{title="Set up repo structure, environments, and CI foundation"}
-1. Buat struktur `booking-system-backend/` dan `booking-system-frontend/` mengikuti hierarki di dokumentasi; pastikan file konfigurasi utama tersedia (Dockerfile, docker-compose, .env.example).
+1. Buat struktur `backend/` dan `frontend/` mengikuti hierarki di dokumentasi; pastikan file konfigurasi utama tersedia (Dockerfile, docker-compose, .env.example).
 2. Konfigurasikan Docker Compose untuk PostgreSQL, Redis, backend API, frontend, dan Nginx sebagai reverse proxy.
 3. Siapkan template environment (.env) untuk semua layanan, termasuk kredensial Midtrans dan SendGrid.
 4. Konfigurasikan lint/test/build script (Go tools, npm scripts) dan pipeline CI menjalankan lint → test → build berurutan.

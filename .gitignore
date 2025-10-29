@@ -1,25 +1,21 @@
 # Node
 node_modules/
-booking-system-frontend/node_modules/
-booking-system-frontend/dist/
-booking-system-frontend/*.tsbuildinfo
-booking-system-frontend/vite.config.js
-booking-system-frontend/vite.config.d.ts
-booking-system-frontend/vitest.config.js
-booking-system-frontend/vitest.config.d.ts
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
 
 # TypeScript build info
 *.tsbuildinfo
 
 # Go
-booking-system-backend/bin/
-booking-system-backend/vendor/
+backend/bin/
+backend/vendor/
 
 # Environment
 *.env
 .env
-booking-system-backend/.env
-booking-system-frontend/.env
+backend/.env
+frontend/.env
 
 # IDE
 .vscode/

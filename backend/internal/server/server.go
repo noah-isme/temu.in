@@ -11,15 +11,15 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/temu-in/temu.in/booking-system-backend/internal/config"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/health"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/models"
-	authhandler "github.com/temu-in/temu.in/booking-system-backend/internal/auth"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/user"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/admin"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/audit"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/seeder"
-	"github.com/temu-in/temu.in/booking-system-backend/internal/token"
+	"github.com/temu-in/temu.in/backend/internal/config"
+	"github.com/temu-in/temu.in/backend/internal/health"
+	"github.com/temu-in/temu.in/backend/internal/models"
+	authhandler "github.com/temu-in/temu.in/backend/internal/auth"
+	"github.com/temu-in/temu.in/backend/internal/user"
+	"github.com/temu-in/temu.in/backend/internal/admin"
+	"github.com/temu-in/temu.in/backend/internal/audit"
+	"github.com/temu-in/temu.in/backend/internal/seeder"
+	"github.com/temu-in/temu.in/backend/internal/token"
 )
 
 type Server struct {

@@ -1,4 +1,4 @@
-module github.com/temu-in/temu.in/booking-system-backend
+module github.com/temu-in/temu.in/backend
 
 go 1.23.0
 

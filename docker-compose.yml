@@ -21,9 +21,9 @@ services:
 
   backend:
     build:
-      context: ./booking-system-backend
+      context: ./backend
     env_file:
-      - ./booking-system-backend/.env.example
+      - ./backend/.env.example
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-temu_in}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/0
@@ -35,7 +35,7 @@ services:
 
   frontend:
     build:
-      context: ./booking-system-frontend
+      context: ./frontend
     environment:
       VITE_API_URL: http://localhost:8080
     ports:

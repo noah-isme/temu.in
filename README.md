@@ -5,8 +5,8 @@ Platform pemesanan janji temu end-to-end dengan frontend React dan backend Go.
 ## Struktur Proyek
 
 ```
-/booking-system-backend   # API Go + Gin
-/booking-system-frontend  # SPA React + Vite
+/backend   # API Go + Gin
+/frontend  # SPA React + Vite
 /docs                     # Dokumentasi proyek
 /docker-compose.yml       # Orkestrasi layanan pendukung
 /nginx/nginx.conf         # Reverse proxy konfigurasi
@@ -18,8 +18,8 @@ Platform pemesanan janji temu end-to-end dengan frontend React dan backend Go.
 
    ```bash
    cp .env.example .env
-   cp booking-system-backend/.env.example booking-system-backend/.env
-   cp booking-system-frontend/.env.example booking-system-frontend/.env
+   cp backend/.env.example backend/.env
+   cp frontend/.env.example frontend/.env
    ```
 
 2. Jalankan layanan menggunakan Docker Compose.
@@ -38,7 +38,7 @@ Platform pemesanan janji temu end-to-end dengan frontend React dan backend Go.
 ### Backend
 
 ```bash
-cd booking-system-backend
+cd backend
 cp .env.example .env
 go run ./cmd/api
 ```
@@ -46,7 +46,7 @@ go run ./cmd/api
 ### Frontend
 
 ```bash
-cd booking-system-frontend
+cd frontend
 cp .env.example .env
 npm install
 npm run dev
@@ -56,24 +56,24 @@ npm run dev
 
 Jika kamu ingin mengembangkan frontend tanpa menunggu backend, MSW sudah disiapkan untuk development. Berikut langkah singkat:
 
-1. Dari direktori `booking-system-frontend`, pasang dependensi dan jalankan dev server:
+1. Dari direktori `frontend`, pasang dependensi dan jalankan dev server:
 
 ```bash
-cd booking-system-frontend
+cd frontend
 npm install
 npm run dev
 
 Note: The frontend now uses TanStack React Query and React Toastify for improved UX. After pulling changes, install new dependencies with:
 
 ```bash
-cd booking-system-frontend
+cd frontend
 npm install
 ```
 
 Additionally, the project uses Framer Motion for toast and component animations. If you want these animations, ensure `framer-motion` is installed (it is listed in optionalDependencies):
 
 ```bash
-cd booking-system-frontend
+cd frontend
 npm install framer-motion
 ```
 
@@ -98,7 +98,7 @@ The top navigation includes a mobile toggle (hamburger) that opens the mobile me
 If you pull the repository and see navigation-related TypeScript errors, ensure `react-router-dom` is installed in the frontend:
 
 ```bash
-cd booking-system-frontend
+cd frontend
 npm install react-router-dom
 ```
 ```

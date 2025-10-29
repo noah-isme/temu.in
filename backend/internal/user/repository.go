@@ -4,7 +4,7 @@ import (
     "errors"
 
     "gorm.io/gorm"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/models"
+    "github.com/temu-in/temu.in/backend/internal/models"
 )
 
 type Repository struct {

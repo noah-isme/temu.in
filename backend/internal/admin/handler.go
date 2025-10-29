@@ -4,10 +4,10 @@ import (
     "net/http"
 
     "github.com/gin-gonic/gin"
-    auth "github.com/temu-in/temu.in/booking-system-backend/internal/auth"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/user"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/audit"
-    "github.com/temu-in/temu.in/booking-system-backend/internal/models"
+    auth "github.com/temu-in/temu.in/backend/internal/auth"
+    "github.com/temu-in/temu.in/backend/internal/user"
+    "github.com/temu-in/temu.in/backend/internal/audit"
+    "github.com/temu-in/temu.in/backend/internal/models"
 )
 
 type Handler struct {

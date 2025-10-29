@@ -367,7 +367,7 @@ DELETE /users/:id
 
 ### Backend (Go)
 ```
-booking-system-backend/
+backend/
 ├── cmd/
 │   └── api/
 │       └── main.go                 # Entry point
@@ -428,7 +428,7 @@ booking-system-backend/
 
 ### Frontend (React)
 ```
-booking-system-frontend/
+frontend/
 ├── public/
 ├── src/
 │   ├── api/
