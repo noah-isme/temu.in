@@ -40,7 +40,18 @@ Platform pemesanan janji temu end-to-end dengan frontend React dan backend Go.
 ```bash
 cd backend
 cp .env.example .env
+For hot-reload during development, install `air` and run:
+
+```bash
+go install github.com/cosmtrek/air@latest
+make dev
+```
+
+Or run once without HMR:
+
+```bash
 go run ./cmd/api
+```
 ```
 
 ### Frontend

@@ -18,6 +18,9 @@ type Config struct {
 	SendGridAPIKey    string        `env:"SENDGRID_API_KEY"`
 	MidtransServerKey string        `env:"MIDTRANS_SERVER_KEY"`
 	MidtransClientKey string        `env:"MIDTRANS_CLIENT_KEY"`
+	AllowedOrigins    []string      `env:"ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:5173,http://localhost:3000"`
+	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" envDefault:"100"`
+	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" envDefault:"1m"`
 }
 
 func Load() (*Config, error) {

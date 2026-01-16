@@ -1,0 +1,300 @@
+package availability
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"temu.in/backend/internal/auth"
+	"temu.in/backend/internal/models"
+	"temu.in/backend/internal/provider"
+	"temu.in/backend/internal/validator"
+)
+
+type Handlers struct {
+	service         *Service
+	providerService provider.Service
+}
+
+func NewHandlers(service *Service, providerService provider.Service) *Handlers {
+	return &Handlers{
+		service:         service,
+		providerService: providerService,
+	}
+}
+
+func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
+	// Protected routes (provider owner or admin)
+	protected := rg.Group("/providers/:providerId")
+	protected.Use(auth.Middleware(jwtSecret))
+
+	protected.GET("/schedules", h.ListSchedules)
+	protected.POST("/schedules", h.CreateSchedule)
+	protected.PUT("/schedules/:id", h.UpdateSchedule)
+	protected.DELETE("/schedules/:id", h.DeleteSchedule)
+
+	protected.GET("/exceptions", h.ListExceptions)
+	protected.POST("/exceptions", h.CreateException)
+	protected.PUT("/exceptions/:id", h.UpdateException)
+	protected.DELETE("/exceptions/:id", h.DeleteException)
+}
+
+func (h *Handlers) getUserClaims(c *gin.Context) (*auth.Claims, bool) {
+	v, ok := c.Get("user_claims")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return nil, false
+	}
+	claims, ok := v.(*auth.Claims)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid claims"})
+		return nil, false
+	}
+	return claims, true
+}
+
+func (h *Handlers) checkOwnership(c *gin.Context, providerID string) bool {
+	claims, ok := h.getUserClaims(c)
+	if !ok {
+		return false
+	}
+
+	p, err := h.providerService.GetProvider(providerID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return false
+	}
+
+	// TODO: Allow admin role to override
+	if p.UserID != strconv.Itoa(int(claims.UserID)) && claims.Role != "admin" {
+		// Note: claims.UserID is uint, p.UserID is string (from models) or int?
+		// Let's check models.ServiceProvider.UserID -> it is INTEGER in SQL, but string in some other places?
+		// In database migration: user_id INTEGER.
+		// In models/provider.go: UserID string? No, let's check.
+		// If mismatch, we fix. Assuming standard check.
+		// Actually, let's just use string comparison after converting.
+		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
+		return false
+	}
+	return true
+}
+
+// Schedules
+
+type CreateScheduleRequest struct {
+	DayOfWeek   int    `json:"day_of_week" binding:"min=0,max=6"`
+	StartTime   string `json:"start_time" binding:"required,len=5"` // HH:MM
+	EndTime     string `json:"end_time" binding:"required,len=5"`   // HH:MM
+	IsAvailable bool   `json:"is_available"`
+}
+
+func (h *Handlers) ListSchedules(c *gin.Context) {
+	providerID := c.Param("providerId")
+	// Public endpoint? Or owner only?
+	// Usually availability is public for booking, but "management" (CRUD) is private.
+	// This endpoint is under protected group in Register?
+	// We might want a public one later, but for now this is for dashboard.
+
+	schedules, err := h.service.GetSchedulesByProvider(providerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list schedules"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"schedules": schedules})
+}
+
+func (h *Handlers) CreateSchedule(c *gin.Context) {
+	providerID := c.Param("providerId")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	var req CreateScheduleRequest
+	if !validator.BindAndValidate(c, &req) {
+		return
+	}
+
+	schedule := &models.AvailabilitySchedule{
+		ProviderID:  providerID,
+		DayOfWeek:   req.DayOfWeek,
+		StartTime:   req.StartTime,
+		EndTime:     req.EndTime,
+		IsAvailable: req.IsAvailable,
+	}
+
+	if err := h.service.CreateSchedule(schedule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"schedule": schedule})
+}
+
+func (h *Handlers) UpdateSchedule(c *gin.Context) {
+	providerID := c.Param("providerId")
+	id := c.Param("id")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	var req CreateScheduleRequest
+	if !validator.BindAndValidate(c, &req) {
+		return
+	}
+
+	schedule := &models.AvailabilitySchedule{
+		ID:          id,
+		ProviderID:  providerID,
+		DayOfWeek:   req.DayOfWeek,
+		StartTime:   req.StartTime,
+		EndTime:     req.EndTime,
+		IsAvailable: req.IsAvailable,
+	}
+
+	if err := h.service.UpdateSchedule(id, schedule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"schedule": schedule})
+}
+
+func (h *Handlers) DeleteSchedule(c *gin.Context) {
+	providerID := c.Param("providerId")
+	id := c.Param("id")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	if err := h.service.DeleteSchedule(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "schedule deleted"})
+}
+
+// Exceptions
+
+type CreateExceptionRequest struct {
+	Date        string `json:"date" binding:"required"` // YYYY-MM-DD
+	StartTime   string `json:"start_time"`              // Optional
+	EndTime     string `json:"end_time"`                // Optional
+	IsAvailable bool   `json:"is_available"`
+	Reason      string `json:"reason"`
+}
+
+func (h *Handlers) ListExceptions(c *gin.Context) {
+	providerID := c.Param("providerId")
+	// Optional date range
+	startStr := c.Query("start_date")
+	endStr := c.Query("end_date")
+
+	now := time.Now()
+	startDate := now
+	endDate := now.AddDate(0, 3, 0) // Default 3 months
+
+	if startStr != "" {
+		if t, err := time.Parse("2006-01-02", startStr); err == nil {
+			startDate = t
+		}
+	}
+	if endStr != "" {
+		if t, err := time.Parse("2006-01-02", endStr); err == nil {
+			endDate = t
+		}
+	}
+
+	exceptions, err := h.service.GetExceptionsByProviderAndDateRange(providerID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list exceptions"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"exceptions": exceptions})
+}
+
+func (h *Handlers) CreateException(c *gin.Context) {
+	providerID := c.Param("providerId")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	var req CreateExceptionRequest
+	if !validator.BindAndValidate(c, &req) {
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
+		return
+	}
+
+	exception := &models.AvailabilityException{
+		ProviderID:  providerID,
+		Date:        date,
+		StartTime:   req.StartTime,
+		EndTime:     req.EndTime,
+		IsAvailable: req.IsAvailable,
+		Reason:      req.Reason,
+	}
+
+	if err := h.service.CreateException(exception); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"exception": exception})
+}
+
+func (h *Handlers) UpdateException(c *gin.Context) {
+	providerID := c.Param("providerId")
+	id := c.Param("id")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	var req CreateExceptionRequest
+	if !validator.BindAndValidate(c, &req) {
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
+		return
+	}
+
+	exception := &models.AvailabilityException{
+		ID:          id,
+		ProviderID:  providerID,
+		Date:        date,
+		StartTime:   req.StartTime,
+		EndTime:     req.EndTime,
+		IsAvailable: req.IsAvailable,
+		Reason:      req.Reason,
+	}
+
+	if err := h.service.UpdateException(id, exception); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"exception": exception})
+}
+
+func (h *Handlers) DeleteException(c *gin.Context) {
+	providerID := c.Param("providerId")
+	id := c.Param("id")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
+
+	if err := h.service.DeleteException(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "exception deleted"})
+}

@@ -52,22 +52,27 @@ export default function BookingFlow(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      // 1) create booking (mock)
-      const booking = await createBooking({ providerId: selectedProvider, customerName: 'Demo User', slot: selectedSlot });
-
-      // 2) create payment intent for the booking (mock)
+      // Transactional: request backend to create booking+payment in a single operation
       const amount = 100000; // mock amount
-      const intent = await createPaymentIntent(amount, 'IDR');
+      const res = await createBooking({ providerId: selectedProvider, customerName: 'Demo User', slot: selectedSlot, amount, currency: 'IDR' } as any);
 
-      // optionally force fail by altering client_secret
+      // backend returns booking and payment intent
+      const booking = (res as any).booking;
+      const intent = (res as any).payment;
+      if (!intent) {
+        setError('Payment creation failed');
+        return;
+      }
+
       const clientSecret = forceFailPayment ? `${intent.client_secret}_fail` : intent.client_secret;
 
-      // 3) confirm payment using client_secret
+      // confirm payment using client_secret
       const paymentResult = await confirmPayment(clientSecret);
 
       if (paymentResult.status === 'succeeded') {
         toast.success(`Booking & payment successful: ${booking.id} (tx: ${paymentResult.transactionId})`);
         queryClient.invalidateQueries(['providers']);
+        queryClient.invalidateQueries(['bookings']);
       } else {
         setError(paymentResult.message || 'Payment failed');
         toast.error(paymentResult.message || 'Payment failed');

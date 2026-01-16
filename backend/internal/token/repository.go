@@ -8,7 +8,7 @@ import (
     "github.com/redis/go-redis/v9"
     "gorm.io/gorm"
 
-    "github.com/temu-in/temu.in/backend/internal/models"
+    "temu.in/backend/internal/models"
 )
 
 type Repository struct{

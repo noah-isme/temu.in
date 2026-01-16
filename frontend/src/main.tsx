@@ -10,13 +10,18 @@ import App from './App';
 import './styles/index.css';
 
 async function prepare() {
-  if (import.meta.env.DEV) {
+  // MSW can be disabled by setting VITE_USE_MSW=false in .env or the environment
+  const useMsw = (import.meta.env.DEV && (import.meta.env.VITE_USE_MSW ?? 'true') !== 'false');
+  if (useMsw) {
     // Start MSW worker in development so frontend can work without backend
     const { worker } = await import('./mocks/browser');
     await worker.start({ onUnhandledRequest: 'bypass' });
     // Helpful log to confirm MSW is running (check browser devtools console)
     // eslint-disable-next-line no-console
     console.info('[MSW] Mock Service Worker started (development mode)');
+  } else {
+    // eslint-disable-next-line no-console
+    console.info('[MSW] Disabled via VITE_USE_MSW=false; frontend will call real backend');
   }
 }
 

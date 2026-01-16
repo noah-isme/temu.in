@@ -63,3 +63,10 @@ Fokus: monitoring, email templates, worker queue, build & deploy pipeline.
 3. **Sprint 3 – Payments, Admin, Observability**  
    - Deliverable: Midtrans integration, admin dashboard, analytics, QA hardening, deployment checklist.
 
+## Developer notes — local dev & MSW
+
+- The frontend includes MSW (Mock Service Worker) to allow frontend-first development without a running backend. Toggle MSW using the Vite env variable `VITE_USE_MSW` (set to `true` to use mocks, `false` to call the real backend).
+- The backend exposes public SPA endpoints at both the root (e.g. `/providers`) and under the `/api` prefix (e.g. `/api/providers`) for compatibility with proxies and the frontend default baseURL. Health checks are available at `/health/live`, `/health/ready` and also under `/api/health/live` and `/api/health/ready`.
+
+If you run into 404s for frontend requests during local development, either enable MSW in the frontend or ensure the backend is running and reachable at the host/port configured in `VITE_API_URL`.
+

@@ -1,19 +1,22 @@
 package models
 
 import (
-    "time"
+	"time"
 
-    "gorm.io/gorm"
+	"gorm.io/gorm"
 )
 
 type User struct {
-    ID        uint           `gorm:"primaryKey" json:"id"`
-    CreatedAt time.Time      `json:"created_at"`
-    UpdatedAt time.Time      `json:"updated_at"`
-    DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-    Email    string `gorm:"uniqueIndex;not null" json:"email"`
-    Password string `gorm:"not null" json:"-"`
-    Name     string `json:"name"`
-    Role     string `gorm:"default:user" json:"role"` // roles: user, admin
+	Email    string `gorm:"uniqueIndex;not null" json:"email"`
+	Password string `gorm:"not null" json:"-"`
+	Name     string `json:"name"`
+	Role     string `gorm:"default:user" json:"role"` // roles: user, admin
+
+	IsVerified        bool    `gorm:"default:false" json:"isVerified"`
+	VerificationToken *string `json:"-"`
 }

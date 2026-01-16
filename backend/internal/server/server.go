@@ -8,18 +8,13 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/temu-in/temu.in/backend/internal/config"
-	"github.com/temu-in/temu.in/backend/internal/health"
-	"github.com/temu-in/temu.in/backend/internal/models"
-	authhandler "github.com/temu-in/temu.in/backend/internal/auth"
-	"github.com/temu-in/temu.in/backend/internal/user"
-	"github.com/temu-in/temu.in/backend/internal/admin"
-	"github.com/temu-in/temu.in/backend/internal/audit"
-	"github.com/temu-in/temu.in/backend/internal/seeder"
-	"github.com/temu-in/temu.in/backend/internal/token"
+	"temu.in/backend/internal/config"
+	"temu.in/backend/internal/database"
+	"temu.in/backend/internal/middleware"
+	"temu.in/backend/internal/router"
+	"temu.in/backend/internal/seeder"
 )
 
 type Server struct {
@@ -33,93 +28,15 @@ func New(cfg *config.Config) *Server {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+		AllowOrigins:     cfg.AllowedOrigins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowCredentials: true,
+		MaxAge:           12 * 60 * 60, // 12 hours
 	}))
 
 	srv := &Server{cfg: cfg, router: r}
-	srv.registerRoutes()
 	return srv
-}
-
-func (s *Server) registerRoutes() {
-	health.RegisterRoutes(s.router)
-}
-
-func (s *Server) Run() error {
-	if err := s.connectDatabase(); err != nil {
-		return err
-	}
-
-	if err := s.connectRedis(); err != nil {
-		return err
-	}
-
-	addr := fmt.Sprintf(":%d", s.cfg.Port)
-	return s.router.Run(addr)
-}
-
-func (s *Server) connectDatabase() error {
-	db, err := gorm.Open(postgres.Open(s.cfg.DatabaseURL), &gorm.Config{})
-	if err != nil {
-		return fmt.Errorf("connect database: %w", err)
-	}
-
-	s.db = db
-	// auto-migrate core models
-	if err := s.db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.AdminAudit{}); err != nil {
-		return fmt.Errorf("auto migrate: %w", err)
-	}
-
-	// register auth routes after DB connected
-	repo := user.NewRepository(s.db)
-	var tokenRepo *token.Repository
-	if s.cache != nil {
-		tokenRepo = token.NewRepositoryWithCache(s.db, s.cache)
-	} else {
-		tokenRepo = token.NewRepository(s.db)
-	}
-	h := authhandler.NewHandler(repo, s.cfg, tokenRepo)
-	api := s.router.Group("/api")
-	h.RegisterRoutes(api.Group("/auth"))
-
-	// seed admin if requested
-	if err := seeder.SeedAdmin(s.db); err != nil {
-		return fmt.Errorf("seed admin: %w", err)
-	}
-
-	// register /api/me (inline to avoid import cycles)
-	api.GET("/me", authhandler.Middleware(s.cfg.JWTSecret), func(c *gin.Context) {
-		v, ok := c.Get(authhandler.UserContextKey)
-		if !ok {
-			c.JSON(401, gin.H{"error": "unauthenticated"})
-			return
-		}
-		claims, ok := v.(*authhandler.Claims)
-		if !ok {
-			c.JSON(500, gin.H{"error": "internal"})
-			return
-		}
-		u, err := repo.FindByID(claims.UserID)
-		if err != nil || u == nil {
-			c.JSON(500, gin.H{"error": "internal"})
-			return
-		}
-		c.JSON(200, gin.H{"user": gin.H{"id": u.ID, "email": u.Email, "role": u.Role, "name": u.Name}})
-	})
-
-	// admin endpoints
-	auditRepo := audit.NewRepository(s.db)
-	adminHandler := admin.NewHandler(repo, auditRepo)
-	adminHandler.RegisterRoutes(api.Group("/"), s.cfg.JWTSecret)
-
-	// sample admin-only route
-	adminGroup := api.Group("/admin")
-	adminGroup.Use(authhandler.Middleware(s.cfg.JWTSecret), authhandler.RequireRole("admin"))
-	adminGroup.GET("/stats", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "users": 42}) })
-
-	return nil
 }
 
 func (s *Server) connectRedis() error {
@@ -148,6 +65,40 @@ func (s *Server) Cache() *redis.Client {
 	return s.cache
 }
 
-func (s *Server) Router() *gin.Engine {
-	return s.router
+func (s *Server) Run() error {
+	if err := s.connectDatabase(); err != nil {
+		return err
+	}
+
+	if err := s.connectRedis(); err != nil {
+		return err
+	}
+
+	rateLimiter := middleware.NewRateLimiter(s.cache, s.cfg.RateLimitRequests, s.cfg.RateLimitWindow)
+	s.router.Use(rateLimiter.Middleware())
+
+	r := router.New(s.router, s.cfg, s.db, s.cache)
+	r.RegisterAll()
+
+	addr := fmt.Sprintf(":%d", s.cfg.Port)
+	return s.router.Run(addr)
+}
+
+func (s *Server) connectDatabase() error {
+	db, err := database.Connect(s.cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+
+	if err := db.RunMigrations(); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+
+	s.db = db.DB
+
+	if err := seeder.SeedAdmin(s.db); err != nil {
+		return fmt.Errorf("seed admin: %w", err)
+	}
+
+	return nil
 }

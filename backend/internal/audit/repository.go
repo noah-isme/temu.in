@@ -1,7 +1,7 @@
 package audit
 
 import (
-    "github.com/temu-in/temu.in/backend/internal/models"
+    "temu.in/backend/internal/models"
     "gorm.io/gorm"
 )
 

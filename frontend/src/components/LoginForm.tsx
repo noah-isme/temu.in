@@ -22,8 +22,6 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
     setError(null);
     try {
       const data = await login(email, password);
-      // eslint-disable-next-line no-console
-      console.log('Logged in', data);
       setAuthToken(data.token);
       setToken(data.token);
   if (onLogin) onLogin(data.token);

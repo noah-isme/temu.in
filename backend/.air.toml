@@ -1,0 +1,20 @@
+# .air.toml - configuration for air (https://github.com/cosmtrek/air)
+# Simple dev config for hot reload in the backend.
+
+# root = "."
+tmp_dir = "tmp"
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/api"
+  bin = "./tmp/main"
+  include_ext = ["go"]
+  exclude_dir = ["assets", "tmp", "vendor"]
+  delay = 1000
+
+[color]
+  main = "yellow"
+  watcher = "cyan"
+  build = "green"
+  runner = "magenta"
+
+[log]
+  time = true

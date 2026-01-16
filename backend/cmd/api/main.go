@@ -5,8 +5,8 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/temu-in/temu.in/backend/internal/config"
-	"github.com/temu-in/temu.in/backend/internal/server"
+	"temu.in/backend/internal/config"
+	"temu.in/backend/internal/server"
 )
 
 func main() {

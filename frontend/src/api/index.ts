@@ -7,7 +7,7 @@ api.defaults.withCredentials = true;
 
 // Attach Authorization header if token present
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('mock_token');
+  const token = localStorage.getItem('auth_token');
   if (token && config.headers) {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
@@ -44,7 +44,7 @@ api.interceptors.response.use(undefined, async (error) => {
     isRefreshing = true;
     try {
       await refresh();
-      processQueue(null, localStorage.getItem('mock_token'));
+      processQueue(null, localStorage.getItem('auth_token'));
       return api(originalRequest);
     } catch (err) {
       processQueue(err, null);
@@ -58,18 +58,18 @@ api.interceptors.response.use(undefined, async (error) => {
 
 export function setAuthToken(token: string | null) {
   if (token) {
-    localStorage.setItem('mock_token', token);
+    localStorage.setItem('auth_token', token);
   } else {
-    localStorage.removeItem('mock_token');
+    localStorage.removeItem('auth_token');
   }
 }
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem('mock_token');
+  return localStorage.getItem('auth_token');
 }
 
 export function clearAuthToken() {
-  localStorage.removeItem('mock_token');
+  localStorage.removeItem('auth_token');
 }
 
 export type Provider = {
@@ -87,6 +87,10 @@ export type BookingInput = {
   providerId: string;
   customerName: string;
   slot?: string | null;
+  client_secret?: string;
+  intent_id?: string;
+  amount?: number;
+  currency?: string;
 };
 
 export async function createBooking(input: BookingInput) {

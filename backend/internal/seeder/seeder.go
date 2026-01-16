@@ -7,7 +7,7 @@ import (
     "golang.org/x/crypto/bcrypt"
     "gorm.io/gorm"
 
-    "github.com/temu-in/temu.in/backend/internal/models"
+    "temu.in/backend/internal/models"
 )
 
 func SeedAdmin(db *gorm.DB) error {
