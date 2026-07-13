@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import PageTransition from '../components/PageTransition';
 import { fetchServices } from '../api';
 import Spinner from '../components/Spinner';
+import { Service } from '../api';
 
 export default function ServicesPage() {
-  const [services, setServices] = useState<any[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

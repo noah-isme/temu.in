@@ -17,11 +17,11 @@ api.interceptors.request.use((config) => {
 // Attempt automatic refresh on 401 once
 let isRefreshing = false;
 let failedQueue: Array<{
-  resolve: (value?: any) => void;
-  reject: (err: any) => void;
+  resolve: (value?: unknown) => void;
+  reject: (err: unknown) => void;
 }> = [];
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((p) => {
     if (error) p.reject(error);
     else p.resolve(token);
@@ -75,12 +75,22 @@ export function clearAuthToken() {
 export type Provider = {
   id: string;
   name: string;
+  business_name?: string;
   available: boolean;
+};
+
+type ProviderResponse = Provider & {
+  is_active?: boolean;
 };
 
 export async function fetchProviders(): Promise<Provider[]> {
   const res = await api.get('/providers');
-  return res.data;
+  const providers = Array.isArray(res.data) ? res.data : (res.data?.providers ?? []);
+  return (providers as ProviderResponse[]).map((provider) => ({
+    ...provider,
+    name: provider.name ?? provider.business_name,
+    available: provider.available ?? provider.is_active ?? false,
+  }));
 }
 
 export type BookingInput = {
@@ -93,7 +103,20 @@ export type BookingInput = {
   currency?: string;
 };
 
-export async function createBooking(input: BookingInput) {
+export type PaymentIntent = {
+  id: number;
+  client_secret: string;
+  amount: number;
+  currency: string;
+  status: string;
+};
+
+export type BookingResponse = {
+  booking: { id: number; status: string };
+  payment?: PaymentIntent;
+};
+
+export async function createBooking(input: BookingInput): Promise<BookingResponse> {
   const res = await api.post('/bookings', input);
   return res.data;
 }
@@ -102,12 +125,22 @@ export type Service = {
   id: string;
   name: string;
   durationMinutes: number;
+  duration?: number;
+  description?: string;
   price: number;
+};
+
+type ServiceResponse = Omit<Service, 'durationMinutes'> & {
+  durationMinutes?: number;
 };
 
 export async function fetchServices(): Promise<Service[]> {
   const res = await api.get('/services');
-  return res.data;
+  const services = Array.isArray(res.data) ? res.data : (res.data?.services ?? []);
+  return (services as ServiceResponse[]).map((service) => ({
+    ...service,
+    durationMinutes: service.durationMinutes ?? service.duration ?? 0,
+  }));
 }
 
 export async function fetchAvailability(providerId: string) {
@@ -157,6 +190,21 @@ export async function adminListUsers() {
   const res = await api.get('/admin/users');
   return res.data;
 }
+
+export type AdminUser = {
+  id: number;
+  email: string;
+  name?: string;
+  role: string;
+};
+
+export type AdminAudit = {
+  id: number;
+  action: string;
+  created_at: string;
+  target?: string;
+  details?: string;
+};
 
 export async function adminListAudit() {
   const res = await api.get('/admin/audit');

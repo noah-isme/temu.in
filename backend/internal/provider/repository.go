@@ -8,7 +8,7 @@ import (
 type Repository interface {
 	Create(provider *models.ServiceProvider) error
 	FindByID(id string) (*models.ServiceProvider, error)
-	FindByUserID(userID string) (*models.ServiceProvider, error)
+	FindByUserID(userID uint) (*models.ServiceProvider, error)
 	Update(provider *models.ServiceProvider) error
 	Delete(id string) error
 	List(filters ProviderFilters) ([]models.ServiceProvider, int64, error)
@@ -43,7 +43,7 @@ func (r *repository) FindByID(id string) (*models.ServiceProvider, error) {
 	return &provider, nil
 }
 
-func (r *repository) FindByUserID(userID string) (*models.ServiceProvider, error) {
+func (r *repository) FindByUserID(userID uint) (*models.ServiceProvider, error) {
 	var provider models.ServiceProvider
 	err := r.db.Preload("User").Where("user_id = ?", userID).First(&provider).Error
 	if err != nil {

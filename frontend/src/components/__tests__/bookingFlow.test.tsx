@@ -1,6 +1,16 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import BookingFlow from '../BookingFlow';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+function renderBookingFlow() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <BookingFlow />
+    </QueryClientProvider>
+  );
+}
 
 describe('BookingFlow', () => {
   beforeEach(() => {
@@ -13,7 +23,7 @@ describe('BookingFlow', () => {
   });
 
   it('allows selecting provider, date, slot and completes booking + payment', async () => {
-    render(<BookingFlow />);
+    renderBookingFlow();
 
     // wait for service and provider options to appear
     await waitFor(() => expect(screen.getByText(/-- pilih service --/i)).toBeInTheDocument());
@@ -42,11 +52,11 @@ describe('BookingFlow', () => {
     const btn = screen.getByRole('button', { name: /confirm booking/i });
     fireEvent.click(btn);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/Booking & payment successful/i)).toBeInTheDocument());
   });
 
   it('shows error when payment is forced to fail', async () => {
-    render(<BookingFlow />);
+    renderBookingFlow();
 
     await waitFor(() => expect(screen.getByText(/-- pilih service --/i)).toBeInTheDocument());
 

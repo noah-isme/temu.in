@@ -177,15 +177,8 @@ func (s *Service) CheckBookingConflicts(providerID string, date time.Time, start
 
 // Helper functions
 func isValidTime(timeStr string) bool {
-	if len(timeStr) != 5 {
-		return false
-	}
-	// Basic HH:MM format check
-	return timeStr[2] == ':' &&
-		timeStr[0] >= '0' && timeStr[0] <= '2' &&
-		timeStr[1] >= '0' && timeStr[1] <= '9' &&
-		timeStr[3] >= '0' && timeStr[3] <= '5' &&
-		timeStr[4] >= '0' && timeStr[4] <= '9'
+	_, err := time.Parse("15:04", timeStr)
+	return err == nil
 }
 
 func timesOverlap(start1, end1, start2, end2 string) bool {

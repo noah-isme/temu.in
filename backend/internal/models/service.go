@@ -16,6 +16,7 @@ type Service struct {
 	Duration    int             `json:"duration" gorm:"not null"` // minutes
 	Price       float64         `json:"price" gorm:"type:decimal(10,2);not null"`
 	IsActive    bool            `json:"is_active" gorm:"default:true"`
+	Category    string          `json:"category,omitempty" gorm:"type:varchar(100)"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }

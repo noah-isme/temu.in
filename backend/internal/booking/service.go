@@ -21,7 +21,7 @@ var (
 type CreateBookingInput struct {
 	UserID       uint
 	ProviderID   string
-	ServiceID    *uint
+	ServiceID    *string
 	CustomerName string
 	BookingDate  time.Time
 	StartTime    time.Time
@@ -161,6 +161,9 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 		}
 		p, err := s.repo.CreateWithPayment(booking, input.Amount, currency)
 		if err != nil {
+			if IsConflictError(err) {
+				return nil, nil, ErrBookingConflict
+			}
 			return nil, nil, err
 		}
 		return booking, p, nil
@@ -168,6 +171,9 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 
 	booking.Status = "confirmed"
 	if err := s.repo.Create(booking); err != nil {
+		if IsConflictError(err) {
+			return nil, nil, ErrBookingConflict
+		}
 		return nil, nil, err
 	}
 
@@ -253,7 +259,13 @@ func (s *Service) RescheduleBooking(ctx context.Context, id uint, userID uint, n
 	booking.StartTime = newStartTime
 	booking.EndTime = newEndTime
 
-	return s.repo.Update(booking)
+	if err := s.repo.Update(booking); err != nil {
+		if IsConflictError(err) {
+			return ErrBookingConflict
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) ConfirmBooking(ctx context.Context, id uint) error {

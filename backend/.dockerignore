@@ -1,0 +1,7 @@
+.env
+.git
+coverage.out
+tmp/
+bin/
+api
+migrate

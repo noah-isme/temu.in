@@ -2,7 +2,6 @@ package availability
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +24,10 @@ func NewHandlers(service *Service, providerService provider.Service) *Handlers {
 }
 
 func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
+	// Public slot lookup used by the booking flow.
+	rg.GET("/providers/:providerId/availability", h.GetAvailableSlots)
+	rg.GET("/availability", h.GetAvailableSlots)
+
 	// Protected routes (provider owner or admin)
 	protected := rg.Group("/providers/:providerId")
 	protected.Use(auth.Middleware(jwtSecret))
@@ -38,6 +41,39 @@ func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
 	protected.POST("/exceptions", h.CreateException)
 	protected.PUT("/exceptions/:id", h.UpdateException)
 	protected.DELETE("/exceptions/:id", h.DeleteException)
+}
+
+func (h *Handlers) GetAvailableSlots(c *gin.Context) {
+	providerID := c.Param("providerId")
+	if providerID == "" {
+		providerID = c.Query("providerId")
+	}
+	if providerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "providerId is required"})
+		return
+	}
+
+	dateText := c.Query("date")
+	if dateText == "" {
+		dateText = time.Now().Format("2006-01-02")
+	}
+	date, err := time.Parse("2006-01-02", dateText)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
+		return
+	}
+
+	slots, err := h.service.repo.GetAvailableSlots(providerID, date)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to calculate availability"})
+		return
+	}
+
+	formatted := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		formatted = append(formatted, dateText+" "+slot.StartTime+"-"+slot.EndTime)
+	}
+	c.JSON(http.StatusOK, gin.H{"date": dateText, "provider_id": providerID, "available_slots": slots, "slots": formatted})
 }
 
 func (h *Handlers) getUserClaims(c *gin.Context) (*auth.Claims, bool) {
@@ -67,13 +103,7 @@ func (h *Handlers) checkOwnership(c *gin.Context, providerID string) bool {
 	}
 
 	// TODO: Allow admin role to override
-	if p.UserID != strconv.Itoa(int(claims.UserID)) && claims.Role != "admin" {
-		// Note: claims.UserID is uint, p.UserID is string (from models) or int?
-		// Let's check models.ServiceProvider.UserID -> it is INTEGER in SQL, but string in some other places?
-		// In database migration: user_id INTEGER.
-		// In models/provider.go: UserID string? No, let's check.
-		// If mismatch, we fix. Assuming standard check.
-		// Actually, let's just use string comparison after converting.
+	if p.UserID != claims.UserID && claims.Role != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
 		return false
 	}

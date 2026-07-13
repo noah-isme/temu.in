@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchServices, fetchProviders, fetchAvailabilityForDate, createBooking, createPaymentIntent, confirmPayment, Service } from '../api';
+import { fetchServices, fetchProviders, fetchAvailabilityForDate, createBooking, confirmPayment, Provider, Service } from '../api';
 import toast from '../lib/toast';
 
 export default function BookingFlow(): JSX.Element {
   const [services, setServices] = useState<Service[]>([]);
-  const [providers, setProviders] = useState<any[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [selectedService, setSelectedService] = useState<string | null>(null);
@@ -18,6 +18,7 @@ export default function BookingFlow(): JSX.Element {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [forceFailPayment, setForceFailPayment] = useState(false);
 
   const queryClient = useQueryClient();
@@ -26,7 +27,7 @@ export default function BookingFlow(): JSX.Element {
 
   useEffect(() => {
     setServices((servicesData as Service[]) || []);
-    setProviders((providersData as any[]) || []);
+    setProviders(providersData || []);
     setServicesLoading(!!servicesLoadingQuery);
     setProvidersLoading(!!providersLoadingQuery);
   }, [servicesData, providersData, servicesLoadingQuery, providersLoadingQuery]);
@@ -39,7 +40,6 @@ export default function BookingFlow(): JSX.Element {
         const data = await fetchAvailabilityForDate(selectedProvider, selectedDate);
         setSlots(data.slots || []);
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error('Failed to fetch availability', err);
         setSlots([]);
       }
@@ -51,14 +51,15 @@ export default function BookingFlow(): JSX.Element {
     if (!selectedProvider) return alert('Pilih provider');
     setLoading(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       // Transactional: request backend to create booking+payment in a single operation
       const amount = 100000; // mock amount
-      const res = await createBooking({ providerId: selectedProvider, customerName: 'Demo User', slot: selectedSlot, amount, currency: 'IDR' } as any);
+      const res = await createBooking({ providerId: selectedProvider, customerName: 'Demo User', slot: selectedSlot, amount, currency: 'IDR' });
 
       // backend returns booking and payment intent
-      const booking = (res as any).booking;
-      const intent = (res as any).payment;
+      const booking = res.booking;
+      const intent = res.payment;
       if (!intent) {
         setError('Payment creation failed');
         return;
@@ -70,13 +71,18 @@ export default function BookingFlow(): JSX.Element {
       const paymentResult = await confirmPayment(clientSecret);
 
       if (paymentResult.status === 'succeeded') {
-        toast.success(`Booking & payment successful: ${booking.id} (tx: ${paymentResult.transactionId})`);
+        const message = `Booking & payment successful: ${booking.id} (tx: ${paymentResult.transactionId})`;
+        setSuccessMessage(message);
+        toast.success(message);
         queryClient.invalidateQueries(['providers']);
         queryClient.invalidateQueries(['bookings']);
       } else {
         setError(paymentResult.message || 'Payment failed');
         toast.error(paymentResult.message || 'Payment failed');
       }
+    } catch {
+      setError('Payment failed');
+      toast.error('Payment failed');
     } finally {
       setLoading(false);
     }
@@ -84,13 +90,13 @@ export default function BookingFlow(): JSX.Element {
 
   return (
     <section className="max-w-2xl">
-      <h2 className="text-2xl font-semibold mb-4">Booking Flow (mock)</h2>
+      <h2 className="text-2xl font-semibold mb-4">Booking Flow</h2>
       <div className="mb-4">
-        <label className="block text-sm mb-1">Service</label>
+        <label htmlFor="booking-service" className="block text-sm mb-1">Service</label>
         {servicesLoading ? (
           <div className="flex items-center gap-2"><div className="h-6 w-6"><svg className="animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.2" /><path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" /></svg></div><span>Loading services...</span></div>
         ) : (
-          <select className="w-full rounded border p-2" value={selectedService ?? ''} onChange={(e) => setSelectedService(e.target.value || null)}>
+          <select id="booking-service" className="w-full rounded border p-2" value={selectedService ?? ''} onChange={(e) => setSelectedService(e.target.value || null)}>
             <option value="">-- pilih service --</option>
             {services.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -100,11 +106,11 @@ export default function BookingFlow(): JSX.Element {
       </div>
 
       <div className="mb-4">
-        <label className="block text-sm mb-1">Provider</label>
+        <label htmlFor="booking-provider" className="block text-sm mb-1">Provider</label>
         {providersLoading ? (
           <div className="flex items-center gap-2"><svg className="animate-spin" viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.2" /><path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" /></svg><span>Loading providers...</span></div>
         ) : (
-          <select className="w-full rounded border p-2" value={selectedProvider ?? ''} onChange={(e) => setSelectedProvider(e.target.value || null)}>
+          <select id="booking-provider" className="w-full rounded border p-2" value={selectedProvider ?? ''} onChange={(e) => setSelectedProvider(e.target.value || null)}>
             <option value="">-- pilih provider --</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>{p.name} {p.available ? '' : '(unavailable)'}</option>
@@ -114,8 +120,8 @@ export default function BookingFlow(): JSX.Element {
       </div>
 
       <div className="mb-4">
-        <label className="block text-sm mb-1">Date</label>
-        <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="rounded border p-2" />
+        <label htmlFor="booking-date" className="block text-sm mb-1">Date</label>
+        <input id="booking-date" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="rounded border p-2" />
 
         <label className="block text-sm mb-1 mt-4">Available slots</label>
         {slots.length === 0 && <p className="text-sm text-muted-foreground">Pilih provider & tanggal untuk melihat slots</p>}
@@ -130,7 +136,7 @@ export default function BookingFlow(): JSX.Element {
                 <li key={s}>
                   <label className="flex items-center gap-2">
                     <input type="radio" checked={selectedSlot === s} onChange={() => setSelectedSlot(s)} />
-                    <span>{new Date(s).toLocaleString()}</span>
+                    <span>{s}</span>
                   </label>
                 </li>
               ))}
@@ -145,6 +151,7 @@ export default function BookingFlow(): JSX.Element {
       </div>
 
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {successMessage && <p className="text-sm text-green-700 mb-2">{successMessage}</p>}
 
       <div>
         <button className="rounded bg-primary px-3 py-1 text-white flex items-center gap-2" disabled={loading} onClick={handleConfirm}>

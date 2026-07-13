@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminListUsers, adminPromoteUser } from '../api';
+import { AdminUser, adminListUsers, adminPromoteUser } from '../api';
 
 export function useUsers(page = 1, q = '') {
   return useQuery(['admin', 'users', { page, q }], async () => {
@@ -18,14 +18,14 @@ export function usePromoteUser() {
     // optimistic update: mark role as admin in users cache
     onMutate: async (email: string) => {
       await qc.cancelQueries(['admin', 'users']);
-      const previous = qc.getQueryData<any[]>(['admin', 'users', { page: 1, q: '' }]) ?? qc.getQueryData<any[]>(['admin', 'users']);
+      const previous = qc.getQueryData<AdminUser[]>(['admin', 'users', { page: 1, q: '' }]) ?? qc.getQueryData<AdminUser[]>(['admin', 'users']);
       if (previous) {
         qc.setQueryData(['admin', 'users', { page: 1, q: '' }], previous.map(u => u.email === email ? { ...u, role: 'admin' } : u));
         qc.setQueryData(['admin', 'users'], previous.map(u => u.email === email ? { ...u, role: 'admin' } : u));
       }
       return { previous };
     },
-    onError: (err, variables, context: any) => {
+    onError: (_err, _variables, context: { previous?: AdminUser[] } | undefined) => {
       if (context?.previous) {
         qc.setQueryData(['admin', 'users', { page: 1, q: '' }], context.previous);
         qc.setQueryData(['admin', 'users'], context.previous);

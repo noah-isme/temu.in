@@ -1,6 +1,6 @@
 BEGIN;
 
-DROP INDEX IF EXISTS idx_services_category_real;
+DROP INDEX IF EXISTS idx_services_category;
 ALTER TABLE services DROP COLUMN IF EXISTS category;
 DROP INDEX IF EXISTS idx_services_price;
 DROP INDEX IF EXISTS idx_services_name;

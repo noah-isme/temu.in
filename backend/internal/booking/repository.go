@@ -1,11 +1,21 @@
 package booking
 
 import (
+	"errors"
 	"gorm.io/gorm"
 	"time"
 
 	"temu.in/backend/internal/models"
 )
+
+type sqlStateError interface {
+	SQLState() string
+}
+
+func IsConflictError(err error) bool {
+	var stateErr sqlStateError
+	return errors.As(err, &stateErr) && (stateErr.SQLState() == "23P01" || stateErr.SQLState() == "23505")
+}
 
 type Repository struct {
 	db *gorm.DB
@@ -144,7 +154,7 @@ func (r *Repository) CheckConflict(providerID string, date time.Time, startTime,
 	var count int64
 	query := r.db.Model(&models.Booking{}).
 		Where("provider_id = ? AND booking_date = ? AND status NOT IN (?)", providerID, date, []string{"cancelled"}).
-		Where("(start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?)", endTime, startTime, startTime, endTime)
+		Where("start_time < ? AND end_time > ?", endTime, startTime)
 
 	if excludeID > 0 {
 		query = query.Where("id != ?", excludeID)

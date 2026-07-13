@@ -1,153 +1,95 @@
-# Temu.in Monorepo
+# Temu.in
 
-Platform pemesanan janji temu end-to-end dengan frontend React dan backend Go.
+Platform pemesanan janji temu dengan SPA React/TypeScript dan API Go/Gin. PostgreSQL menyimpan data utama, Redis menangani rate limit dan refresh-token state, sementara Nginx menjadi reverse proxy.
 
-## Struktur Proyek
+## Status implementasi
 
+Fondasi aplikasi dan alur inti tersedia: authentication, provider/service CRUD, jadwal availability, booking, favorites, reviews, admin user management, serta payment intent internal. Stack Docker, migrasi PostgreSQL, lint, unit test, dan production build sudah dapat dijalankan.
+
+Bagian berikut masih dalam pengembangan dan belum production-ready:
+
+- Midtrans dan verifikasi webhook pembayaran;
+- SendGrid, template email, dan worker notifikasi;
+- cache slot Redis dan invalidasinya;
+- analytics admin lengkap, Swagger/OpenAPI, E2E test, metrics, dan deployment hardening.
+
+## Struktur
+
+```text
+backend/             API Go, migrasi, dan business logic
+frontend/            SPA React, test Vitest, dan Nginx image
+docs/                spesifikasi dan rencana sprint
+nginx/               reverse proxy utama
+docker-compose.yml   PostgreSQL, Redis, API, SPA, dan proxy
 ```
-/backend   # API Go + Gin
-/frontend  # SPA React + Vite
-/docs                     # Dokumentasi proyek
-/docker-compose.yml       # Orkestrasi layanan pendukung
-/nginx/nginx.conf         # Reverse proxy konfigurasi
+
+## Menjalankan dengan Docker
+
+Salin environment template bila ingin mengubah nilai default:
+
+```bash
+cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 ```
 
-## Memulai
+Bangun dan jalankan stack:
 
-1. Salin file lingkungan contoh dan sesuaikan variabelnya.
+```bash
+docker compose up -d --build
+```
 
-   ```bash
-   cp .env.example .env
-   cp backend/.env.example backend/.env
-   cp frontend/.env.example frontend/.env
-   ```
+Endpoint lokal:
 
-2. Jalankan layanan menggunakan Docker Compose.
+- aplikasi melalui reverse proxy: <http://localhost>
+- frontend langsung: <http://localhost:5173>
+- backend langsung: <http://localhost:8080>
+- liveness: <http://localhost/api/health/live>
+- readiness: <http://localhost/api/health/ready>
 
-   ```bash
-   docker compose up --build
-   ```
+Seluruh API aplikasi menggunakan prefix `/api`, bukan `/api/v1`.
 
-3. Akses layanan:
-   - Backend API: <http://localhost:8080>
-   - Frontend web: <http://localhost:5173>
-   - Reverse proxy: <http://localhost>
+## Pengembangan lokal
 
-## Pengembangan Lokal
-
-### Backend
+Backend membutuhkan PostgreSQL dan Redis yang dapat dijangkau oleh nilai `DATABASE_URL` dan `REDIS_URL`.
 
 ```bash
 cd backend
 cp .env.example .env
-For hot-reload during development, install `air` and run:
-
-```bash
-go install github.com/cosmtrek/air@latest
-make dev
-```
-
-Or run once without HMR:
-
-```bash
 go run ./cmd/api
 ```
-```
 
-### Frontend
+Frontend menggunakan backend nyata secara default dari template environment. Untuk development berbasis mock, ubah `VITE_USE_MSW=true`.
 
 ```bash
 cd frontend
 cp .env.example .env
-npm install
+npm ci
 npm run dev
 ```
 
-### Frontend: Menggunakan MSW (Mock Service Worker)
+## Migrasi
 
-Jika kamu ingin mengembangkan frontend tanpa menunggu backend, MSW sudah disiapkan untuk development. Berikut langkah singkat:
-
-1. Dari direktori `frontend`, pasang dependensi dan jalankan dev server:
+API menjalankan migrasi otomatis saat startup. Migrasi juga dapat dijalankan terpisah:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd backend
+go run ./cmd/migrate
+```
 
-Note: The frontend now uses TanStack React Query and React Toastify for improved UX. After pulling changes, install new dependencies with:
+Migrasi mencakup constraint database yang menolak booking provider dengan waktu tumpang tindih.
+
+## QA
 
 ```bash
-cd frontend
-npm install
+cd backend
+go test ./...
+go vet ./...
+
+cd ../frontend
+npm run lint
+npm test -- --run
+npm run build
 ```
 
-Additionally, the project uses Framer Motion for toast and component animations. If you want these animations, ensure `framer-motion` is installed (it is listed in optionalDependencies):
-
-```bash
-cd frontend
-npm install framer-motion
-```
-
-If you want to run tests (Vitest + MSW):
-
-```bash
-npm test
-
-### Navigation (React Router)
-
-The frontend now uses React Router for client-side navigation. Routes available:
-
-- `/` → Home
-- `/providers` → Providers list
-- `/booking` → Booking flow
-- `/services` → Services list
-- `/admin` → Admin dashboard
-- `/login` → Login page
-
-The top navigation includes a mobile toggle (hamburger) that opens the mobile menu. Links are standard anchor-style client routes using React Router's `Link` component.
-
-If you pull the repository and see navigation-related TypeScript errors, ensure `react-router-dom` is installed in the frontend:
-
-```bash
-cd frontend
-npm install react-router-dom
-```
-```
-
-### Toast examples & i18n
-
-The frontend exposes a small toast helper in `src/lib/toast.tsx`. Examples:
-
-```ts
-import toast, { setLocale } from './src/lib/toast';
-
-// simple message
-toast.success('Booking created successfully');
-
-// use i18n key (prefix with msg:)
-toast.success('msg:booking_success');
-
-// change locale to English
-setLocale('en');
-```
-
-To ensure animations work, install `framer-motion` as dependency.
-
-```
-
-2. Inisialisasi file service worker ke folder `public/` (hanya perlu dilakukan sekali):
-
-```bash
-npx msw init public/ --save
-```
-
-3. MSW akan otomatis dimulai ketika `import.meta.env.DEV` bernilai true. Mock tersedia di `src/mocks/handlers.ts` dan `src/mocks/browser.ts`. Contoh endpoint yang dimock: `/health` dan `/providers`.
-
-Catatan: bila menjalankan lewat Docker Compose, frontend dijalankan sebagai build/production container dan MSW development worker tidak akan aktif. Untuk workflow MSW gunakan `npm run dev` lokal.
-
-
-## QA Pipeline Manual
-
-1. `go test ./...` di direktori backend.
-2. `npm run lint && npm test && npm run build` di direktori frontend.
-3. Pastikan seluruh langkah lint → test → build berhasil sebelum membuat commit.
+Workflow yang sama dijalankan oleh GitHub Actions, termasuk smoke test migrasi pada PostgreSQL 16.

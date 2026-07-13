@@ -8,11 +8,11 @@ import (
 )
 
 type Service interface {
-	CreateProvider(userID string, req *CreateProviderRequest) (*models.ServiceProvider, error)
+	CreateProvider(userID uint, req *CreateProviderRequest) (*models.ServiceProvider, error)
 	GetProvider(id string) (*models.ServiceProvider, error)
-	GetProviderByUserID(userID string) (*models.ServiceProvider, error)
-	UpdateProvider(id string, userID string, req *UpdateProviderRequest) (*models.ServiceProvider, error)
-	DeleteProvider(id string, userID string) error
+	GetProviderByUserID(userID uint) (*models.ServiceProvider, error)
+	UpdateProvider(id string, userID uint, isAdmin bool, req *UpdateProviderRequest) (*models.ServiceProvider, error)
+	DeleteProvider(id string, userID uint, isAdmin bool) error
 	ListProviders(filters ProviderFilters) ([]models.ServiceProvider, int64, error)
 }
 
@@ -45,7 +45,7 @@ func NewService(repo Repository) Service {
 	return &service{repo: repo}
 }
 
-func (s *service) CreateProvider(userID string, req *CreateProviderRequest) (*models.ServiceProvider, error) {
+func (s *service) CreateProvider(userID uint, req *CreateProviderRequest) (*models.ServiceProvider, error) {
 	// Check if user already has a provider profile
 	existing, err := s.repo.FindByUserID(userID)
 	if err == nil && existing != nil {
@@ -80,7 +80,7 @@ func (s *service) GetProvider(id string) (*models.ServiceProvider, error) {
 	return provider, nil
 }
 
-func (s *service) GetProviderByUserID(userID string) (*models.ServiceProvider, error) {
+func (s *service) GetProviderByUserID(userID uint) (*models.ServiceProvider, error) {
 	provider, err := s.repo.FindByUserID(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %w", err)
@@ -88,14 +88,14 @@ func (s *service) GetProviderByUserID(userID string) (*models.ServiceProvider, e
 	return provider, nil
 }
 
-func (s *service) UpdateProvider(id string, userID string, req *UpdateProviderRequest) (*models.ServiceProvider, error) {
+func (s *service) UpdateProvider(id string, userID uint, isAdmin bool, req *UpdateProviderRequest) (*models.ServiceProvider, error) {
 	provider, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
 
 	// Check ownership
-	if provider.UserID != userID {
+	if !isAdmin && provider.UserID != userID {
 		return nil, errors.New("unauthorized: provider does not belong to user")
 	}
 
@@ -132,14 +132,14 @@ func (s *service) UpdateProvider(id string, userID string, req *UpdateProviderRe
 	return provider, nil
 }
 
-func (s *service) DeleteProvider(id string, userID string) error {
+func (s *service) DeleteProvider(id string, userID uint, isAdmin bool) error {
 	provider, err := s.repo.FindByID(id)
 	if err != nil {
 		return fmt.Errorf("provider not found: %w", err)
 	}
 
 	// Check ownership
-	if provider.UserID != userID {
+	if !isAdmin && provider.UserID != userID {
 		return errors.New("unauthorized: provider does not belong to user")
 	}
 

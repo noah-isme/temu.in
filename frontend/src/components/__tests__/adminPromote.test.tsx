@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { rest } from 'msw';
-import { setupServer } from 'msw/node';
+import { server } from '../../mocks/server';
 import AdminPage from '../../pages/AdminPage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -10,7 +10,7 @@ const users = [
   { id: 2, email: 'bob@example.com', name: 'Bob', role: 'admin' },
 ];
 
-const server = setupServer(
+const adminHandlers = [
   rest.get('/api/admin/users', (req, res, ctx) => {
     return res(ctx.json({ users }));
   }),
@@ -21,16 +21,13 @@ const server = setupServer(
     // simulate success
     return res(ctx.status(200), ctx.json({ status: 'promoted' }));
   })
-);
+];
 
 describe('Admin promote optimistic flow', () => {
   const qc = new QueryClient();
 
-  beforeAll(() => server.listen());
-  afterEach(() => server.resetHandlers());
-  afterAll(() => server.close());
-
   test('optimistic promote updates UI and shows toast', async () => {
+    server.use(...adminHandlers);
     render(
       <QueryClientProvider client={qc}>
         <AdminPage />
@@ -44,7 +41,7 @@ describe('Admin promote optimistic flow', () => {
     await userEvent.click(promoteBtn);
 
     // modal shows
-    expect(screen.getByText(/Promote alice@example.com to admin/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /confirm promotion/i })).toHaveTextContent('Promote alice@example.com to admin?');
 
     const confirm = screen.getByRole('button', { name: /confirm/i });
     await userEvent.click(confirm);

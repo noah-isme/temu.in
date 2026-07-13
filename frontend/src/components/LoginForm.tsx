@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { login, setAuthToken, getAuthToken } from '../api';
 import { useAppStore } from '../store/app-store';
 import toast from '../lib/toast';
@@ -26,12 +27,13 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
       setToken(data.token);
   if (onLogin) onLogin(data.token);
     // refresh user state
-    try { await initialize(); } catch {}
-  toast.success('Login success (mock)');
-    } catch (err: any) {
-  const msg = err?.response?.data?.message || 'Login failed';
-  setError(msg);
-  toast.error(msg);
+      await initialize();
+      toast.success('Login successful');
+    } catch (err: unknown) {
+      const responseData = axios.isAxiosError(err) ? err.response?.data as { message?: string; error?: string } : undefined;
+      const msg = responseData?.message ?? responseData?.error ?? 'Login failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -39,7 +41,7 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
 
   return (
     <form onSubmit={handleSubmit} className="max-w-sm">
-      <h2 className="text-xl font-semibold mb-4">Login (mock)</h2>
+      <h2 className="text-xl font-semibold mb-4">Login</h2>
       <div className="mb-2">
         <label className="block text-sm">Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
@@ -59,7 +61,7 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
         )}
       </button>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {token && <p className="mt-2 text-sm text-green-600">Logged in (mock)</p>}
+      {token && <p className="mt-2 text-sm text-green-600">Logged in</p>}
     </form>
   );
 }

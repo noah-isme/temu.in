@@ -1,23 +1,11 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchProviders, Provider, createBooking } from '../api';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { fetchProviders, Provider } from '../api';
 import Spinner from './Spinner';
-import toast from '../lib/toast';
 
 export default function ProvidersList(): JSX.Element {
-  const queryClient = useQueryClient();
   const { data: providers = [], isLoading, isError } = useQuery(['providers'], fetchProviders);
-  const [error] = useState<string | null>(isError ? 'Failed to load providers' : null);
-
-  const bookingMutation = useMutation((providerId: string) => createBooking({ providerId, customerName: 'Demo User' }), {
-    onSuccess: (data) => {
-      toast.success(`Booking confirmed: ${data.id}`);
-      queryClient.invalidateQueries(['providers']);
-    },
-    onError: () => toast.error('Booking failed')
-  });
-
-  // booking is handled via bookingMutation above
+  const error = isError ? 'Failed to load providers' : null;
 
   return (
     <section>
@@ -45,13 +33,14 @@ export default function ProvidersList(): JSX.Element {
                     <p className="text-sm text-muted-foreground">{p.available ? 'Available' : 'Unavailable'}</p>
                   </div>
                   <div>
-                    <button
+                    <Link
+                      to={`/booking?providerId=${encodeURIComponent(p.id)}`}
                       className="rounded bg-primary px-3 py-1 text-white disabled:opacity-50"
-                      disabled={!p.available || isLoading}
-                      onClick={() => bookingMutation.mutate(p.id)}
+                      aria-disabled={!p.available}
+                      onClick={(event) => { if (!p.available) event.preventDefault(); }}
                     >
                       Book
-                    </button>
+                    </Link>
                   </div>
                 </div>
               </li>

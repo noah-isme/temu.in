@@ -16,7 +16,6 @@ import (
 	"temu.in/backend/internal/notification"
 	"temu.in/backend/internal/payment"
 	"temu.in/backend/internal/provider"
-	"temu.in/backend/internal/public"
 	"temu.in/backend/internal/review"
 	"temu.in/backend/internal/service"
 	"temu.in/backend/internal/token"
@@ -41,7 +40,6 @@ func New(engine *gin.Engine, cfg *config.Config, db *gorm.DB, cache *redis.Clien
 
 func (r *Router) RegisterAll() {
 	r.registerHealth()
-	r.registerPublic()
 	r.registerAuth()
 	r.registerProviders()
 	r.registerServices()
@@ -58,11 +56,6 @@ func (r *Router) registerHealth() {
 	apiGroup := r.engine.Group("/api")
 	apiGroup.GET("/health/live", func(c *gin.Context) { c.JSON(200, gin.H{"status": "live"}) })
 	apiGroup.GET("/health/ready", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ready"}) })
-}
-
-func (r *Router) registerPublic() {
-	public.RegisterRoutes(r.engine)
-	public.RegisterRoutes(r.engine.Group("/api"))
 }
 
 func (r *Router) registerAuth() {
@@ -144,16 +137,18 @@ func (r *Router) registerProviders() {
 	handlers := provider.NewHandlers(service)
 
 	api := r.engine.Group("/api")
-	handlers.Register(api.Group("/"))
+	handlers.Register(api.Group("/"), r.cfg.JWTSecret)
 }
 
 func (r *Router) registerServices() {
 	repo := service.NewRepository(r.db)
 	svc := service.NewService(repo)
-	handlers := service.NewHandlers(svc)
+	providerRepo := provider.NewRepository(r.db)
+	providerSvc := provider.NewService(providerRepo)
+	handlers := service.NewHandlers(svc, providerSvc)
 
 	api := r.engine.Group("/api")
-	handlers.Register(api.Group("/"))
+	handlers.Register(api.Group("/"), r.cfg.JWTSecret)
 }
 
 func (r *Router) registerFavorites() {

@@ -6,6 +6,7 @@ import { adminListAudit } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import Modal from '../components/Modal';
 import toastLib from '../lib/toast';
+import { AdminAudit, AdminUser } from '../api';
 
 export default function AdminPage() {
   const [query, setQuery] = useState('');
@@ -13,7 +14,7 @@ export default function AdminPage() {
   const pageSize = 10;
 
   const { data: users = [], isLoading: usersLoading } = useUsers(page, query);
-  const { data: audit = [] } = useQuery<any[]>(['admin', 'audit'], async () => {
+  const { data: audit = [] } = useQuery<AdminAudit[]>(['admin', 'audit'], async () => {
     const res = await adminListAudit();
     return res.audit ?? [];
   });
@@ -36,13 +37,13 @@ export default function AdminPage() {
               </div>
               <ul className="space-y-2">
                 {users
-                  .filter((u: any) => {
+                  .filter((u: AdminUser) => {
                     if (!query) return true;
                     const q = query.toLowerCase();
                     return (u.email || '').toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q);
                   })
                   .slice((page - 1) * pageSize, page * pageSize)
-                  .map((u: any) => (
+                  .map((u: AdminUser) => (
                   <li key={u.id} className="rounded border p-3">
                     <div className="flex items-center justify-between">
                       <div>
@@ -71,7 +72,7 @@ export default function AdminPage() {
                   <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded border px-2 py-1">Prev</button>
                   {(() => {
                     const q = query.toLowerCase();
-                    const filteredCount = (users as any[]).filter((uu: any) => {
+                    const filteredCount = users.filter((uu: AdminUser) => {
                       if (!query) return true;
                       return (uu.email || '').toLowerCase().includes(q) || (uu.name || '').toLowerCase().includes(q);
                     }).length;
@@ -85,7 +86,7 @@ export default function AdminPage() {
             <div>
               <h3 className="mb-4 text-lg font-medium">Audit</h3>
               <ul className="space-y-2">
-                {(audit as any[]).map((a: any) => (
+                {audit.map((a: AdminAudit) => (
                   <li key={a.id} className="rounded border p-3">
                     <div className="text-sm font-medium">{a.action}</div>
                     <div className="text-xs text-muted-foreground">{a.created_at} — {a.target}</div>
@@ -108,7 +109,7 @@ export default function AdminPage() {
                 if (!confirmEmail) return;
                 await promoteMutation.mutateAsync(confirmEmail);
                 toastLib.success(`${confirmEmail} promoted`);
-              } catch (e) {
+              } catch {
                 toastLib.error('Promote failed');
               } finally {
                 setConfirmEmail(null);

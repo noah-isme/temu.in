@@ -12,6 +12,9 @@ export const handlers = [
   rest.get('/api/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }));
   }),
+  rest.get('/api/me', (req, res, ctx) => {
+    return res(ctx.status(200), ctx.json({ user: null }));
+  }),
 
   // GET /providers
   rest.get('/providers', (req, res, ctx) => {
@@ -56,7 +59,16 @@ export const handlers = [
       slot: body.slot || null,
       status: 'confirmed'
     };
-    return res(ctx.status(201), ctx.json(booking));
+    return res(ctx.status(201), ctx.json({
+      booking,
+      payment: {
+        id: 1,
+        client_secret: `cs_${Date.now()}`,
+        amount: body.amount || 0,
+        currency: body.currency || 'IDR',
+        status: 'created'
+      }
+    }));
   })
   ,
   // GET /services

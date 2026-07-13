@@ -9,7 +9,7 @@ import (
 
 type ServiceProvider struct {
 	ID           string    `json:"id" gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
-	UserID       string    `json:"user_id" gorm:"type:uuid;not null"`
+	UserID       uint      `json:"user_id" gorm:"not null"`
 	User         User      `json:"user" gorm:"foreignKey:UserID"`
 	BusinessName string    `json:"business_name" gorm:"type:varchar(255);not null"`
 	BusinessType string    `json:"business_type" gorm:"type:varchar(50);not null"` // doctor, salon, consultant, studio

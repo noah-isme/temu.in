@@ -31,12 +31,9 @@ CREATE TABLE favorites (
 CREATE INDEX idx_favorites_user_id ON favorites(user_id);
 
 -- 4. Search Indexes for Services
+ALTER TABLE services ADD COLUMN category VARCHAR(100);
 CREATE INDEX idx_services_name ON services USING gin(to_tsvector('english', name)); -- Full text search support
 CREATE INDEX idx_services_price ON services(price);
-CREATE INDEX idx_services_category ON services(category) WHERE category IS NOT NULL; -- If we decide to add category later, but wait, we don't have category column yet.
-
--- Let's add Category to Services as well, as it's useful for filtering
-ALTER TABLE services ADD COLUMN category VARCHAR(100);
-CREATE INDEX idx_services_category_real ON services(category);
+CREATE INDEX idx_services_category ON services(category) WHERE category IS NOT NULL;
 
 COMMIT;

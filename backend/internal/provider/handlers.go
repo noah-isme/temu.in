@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -18,17 +17,17 @@ func NewHandlers(service Service) *Handlers {
 	return &Handlers{service: service}
 }
 
-func (h *Handlers) Register(rg *gin.RouterGroup) {
+func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
 	// Public routes
 	rg.GET("/providers", h.List)
-	rg.GET("/providers/:id", h.GetByID)
+	rg.GET("/providers/:providerId", h.GetByID)
 
 	// Protected routes (provider or admin)
 	protected := rg.Group("/")
-	protected.Use(auth.Middleware("your-jwt-secret")) // TODO: get from config
+	protected.Use(auth.Middleware(jwtSecret))
 	protected.POST("/providers", h.Create)
-	protected.PUT("/providers/:id", h.Update)
-	protected.DELETE("/providers/:id", h.Delete)
+	protected.PUT("/providers/:providerId", h.Update)
+	protected.DELETE("/providers/:providerId", h.Delete)
 }
 
 func (h *Handlers) getUserClaims(c *gin.Context) (*auth.Claims, bool) {
@@ -86,7 +85,7 @@ func (h *Handlers) List(c *gin.Context) {
 }
 
 func (h *Handlers) GetByID(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("providerId")
 	provider, err := h.service.GetProvider(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
@@ -107,7 +106,7 @@ func (h *Handlers) Create(c *gin.Context) {
 		return
 	}
 
-	provider, err := h.service.CreateProvider(fmt.Sprintf("%d", claims.UserID), &req)
+	provider, err := h.service.CreateProvider(claims.UserID, &req)
 	if err != nil {
 		if err.Error() == "user already has a provider profile" {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
@@ -126,13 +125,13 @@ func (h *Handlers) Update(c *gin.Context) {
 		return
 	}
 
-	id := c.Param("id")
+	id := c.Param("providerId")
 	var req UpdateProviderRequest
 	if !validator.BindAndValidate(c, &req) {
 		return
 	}
 
-	provider, err := h.service.UpdateProvider(id, fmt.Sprintf("%d", claims.UserID), &req)
+	provider, err := h.service.UpdateProvider(id, claims.UserID, claims.Role == "admin", &req)
 	if err != nil {
 		if err.Error() == "unauthorized: provider does not belong to user" {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
@@ -155,8 +154,8 @@ func (h *Handlers) Delete(c *gin.Context) {
 		return
 	}
 
-	id := c.Param("id")
-	err := h.service.DeleteProvider(id, fmt.Sprintf("%d", claims.UserID))
+	id := c.Param("providerId")
+	err := h.service.DeleteProvider(id, claims.UserID, claims.Role == "admin")
 	if err != nil {
 		if err.Error() == "unauthorized: provider does not belong to user" {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})

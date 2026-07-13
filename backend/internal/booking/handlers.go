@@ -27,7 +27,8 @@ func NewHandlers(repo *Repository, paymentRepo *payment.Repository, userRepo Use
 
 func NewHandlersWithAvailability(repo *Repository, paymentRepo *payment.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService) *Handlers {
 	return &Handlers{
-		service: NewServiceWithDeps(repo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc),
+		service:         NewServiceWithDeps(repo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc),
+		providerService: providerSvc,
 	}
 }
 
@@ -41,11 +42,11 @@ func NewHandlersWithService(svc *Service, providerSvc ProviderService) *Handlers
 func (h *Handlers) Register(rg *gin.RouterGroup) {
 	rg.GET("/bookings", h.List)
 	rg.POST("/bookings", h.Create)
-	rg.GET("/bookings/:id", h.GetByID)
-	rg.POST("/bookings/:id/cancel", h.Cancel)
-	rg.POST("/bookings/:id/confirm", h.Confirm)
-	rg.POST("/bookings/:id/complete", h.Complete)
-	rg.PUT("/bookings/:id", h.Reschedule)
+	rg.GET("/bookings/:bookingId", h.GetByID)
+	rg.POST("/bookings/:bookingId/cancel", h.Cancel)
+	rg.POST("/bookings/:bookingId/confirm", h.Confirm)
+	rg.POST("/bookings/:bookingId/complete", h.Complete)
+	rg.PUT("/bookings/:bookingId", h.Reschedule)
 
 	rg.GET("/providers/:providerId/stats", h.GetProviderStats)
 }
@@ -64,7 +65,7 @@ func (h *Handlers) GetProviderStats(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 			return
 		}
-		if p.UserID != strconv.Itoa(int(claims.UserID)) && claims.Role != "admin" {
+		if p.UserID != claims.UserID && claims.Role != "admin" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
 			return
 		}
@@ -121,14 +122,14 @@ func (h *Handlers) List(c *gin.Context) {
 }
 
 type createBookingRequest struct {
-	ProviderID   string `json:"providerId" binding:"required"`
-	ServiceID    *uint  `json:"serviceId"`
-	CustomerName string `json:"customerName"`
-	Slot         string `json:"slot" binding:"required"`
-	Amount       int64  `json:"amount" binding:"gte=0"`
-	Currency     string `json:"currency"`
-	ClientSecret string `json:"client_secret"`
-	IntentID     string `json:"intent_id"`
+	ProviderID   string  `json:"providerId" binding:"required"`
+	ServiceID    *string `json:"serviceId"`
+	CustomerName string  `json:"customerName"`
+	Slot         string  `json:"slot" binding:"required"`
+	Amount       int64   `json:"amount" binding:"gte=0"`
+	Currency     string  `json:"currency"`
+	ClientSecret string  `json:"client_secret"`
+	IntentID     string  `json:"intent_id"`
 }
 
 func (h *Handlers) Create(c *gin.Context) {
@@ -217,7 +218,7 @@ func (h *Handlers) GetByID(c *gin.Context) {
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -246,7 +247,7 @@ func (h *Handlers) Cancel(c *gin.Context) {
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -271,7 +272,7 @@ func (h *Handlers) Cancel(c *gin.Context) {
 }
 
 func (h *Handlers) Confirm(c *gin.Context) {
-	idStr := c.Param("id")
+	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -300,7 +301,7 @@ func (h *Handlers) Reschedule(c *gin.Context) {
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -360,7 +361,7 @@ func (h *Handlers) Reschedule(c *gin.Context) {
 }
 
 func (h *Handlers) Complete(c *gin.Context) {
-	idStr := c.Param("id")
+	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})

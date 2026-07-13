@@ -26,7 +26,7 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       const data = await apiMe();
       set({ user: data.user ?? null, initialized: true });
-    } catch (err) {
+    } catch {
       set({ user: null, initialized: true });
     }
   }
@@ -34,7 +34,7 @@ export const useAppStore = create<AppState>((set) => ({
   logout: async () => {
     try {
       await apiLogout();
-    } catch (e) {
+    } catch {
       // swallow
     }
     clearAuthToken();

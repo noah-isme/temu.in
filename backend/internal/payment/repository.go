@@ -1,41 +1,41 @@
 package payment
 
 import (
-    "gorm.io/gorm"
+	"gorm.io/gorm"
 
-    "temu.in/backend/internal/models"
+	"temu.in/backend/internal/models"
 )
 
 type Repository struct {
-    db *gorm.DB
+	db *gorm.DB
 }
 
 func NewRepository(db *gorm.DB) *Repository {
-    return &Repository{db: db}
+	return &Repository{db: db}
 }
 
 func (r *Repository) Create(p *models.Payment) error {
-    return r.db.Create(p).Error
+	return r.db.Create(p).Error
 }
 
 func (r *Repository) Update(p *models.Payment) error {
-    return r.db.Save(p).Error
+	return r.db.Save(p).Error
 }
 
 func (r *Repository) FindByIntent(intent string) (*models.Payment, error) {
-    var p models.Payment
-    if err := r.db.Where("intent_id = ?", intent).First(&p).Error; err != nil {
-        return nil, err
-    }
-    return &p, nil
+	var p models.Payment
+	if err := r.db.Where("intent_id = ?", intent).First(&p).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func (r *Repository) FindByClientSecret(cs string) (*models.Payment, error) {
-    var p models.Payment
-    if err := r.db.Where("client_secret = ?", cs).First(&p).Error; err != nil {
-        return nil, err
-    }
-    return &p, nil
+	var p models.Payment
+	if err := r.db.Where("client_secret = ?", cs).First(&p).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // DB exposes underlying gorm DB for limited internal use

@@ -17,10 +17,8 @@ async function prepare() {
     const { worker } = await import('./mocks/browser');
     await worker.start({ onUnhandledRequest: 'bypass' });
     // Helpful log to confirm MSW is running (check browser devtools console)
-    // eslint-disable-next-line no-console
     console.info('[MSW] Mock Service Worker started (development mode)');
   } else {
-    // eslint-disable-next-line no-console
     console.info('[MSW] Disabled via VITE_USE_MSW=false; frontend will call real backend');
   }
 }

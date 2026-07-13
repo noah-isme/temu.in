@@ -16,7 +16,7 @@ type Booking struct {
 	User            User            `json:"user" gorm:"foreignKey:UserID"`
 	ProviderID      string          `gorm:"not null;index:idx_bookings_provider_date" json:"provider_id"`
 	ServiceProvider ServiceProvider `json:"service_provider" gorm:"foreignKey:ProviderID"`
-	ServiceID       *uint           `json:"service_id,omitempty"`
+	ServiceID       *string         `json:"service_id,omitempty"`
 
 	CustomerName string    `json:"customer_name"`
 	BookingDate  time.Time `gorm:"type:date;index:idx_bookings_provider_date" json:"booking_date"`
