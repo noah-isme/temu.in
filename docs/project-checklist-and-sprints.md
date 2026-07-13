@@ -2,6 +2,8 @@
 
 ## Status aktual — 13 Juli 2026
 
+Detail bukti QA, risiko, estimasi kesiapan, dan urutan implementasi terdapat di [progress-report.md](progress-report.md).
+
 - [x] Monorepo backend/frontend, environment template, Dockerfile, Compose, dan Nginx.
 - [x] PostgreSQL migrations tervalidasi pada PostgreSQL 16 serta constraint anti-overlap booking.
 - [x] Authentication JWT/refresh token, provider, service, availability CRUD, booking, favorites, reviews, dan admin user management dasar.
@@ -80,6 +82,6 @@ Fokus: monitoring, email templates, worker queue, build & deploy pipeline.
 ## Developer notes — local dev & MSW
 
 - The frontend includes MSW (Mock Service Worker) to allow frontend-first development without a running backend. Toggle MSW using the Vite env variable `VITE_USE_MSW` (set to `true` to use mocks, `false` to call the real backend).
-- The backend exposes public SPA endpoints at both the root (e.g. `/providers`) and under the `/api` prefix (e.g. `/api/providers`) for compatibility with proxies and the frontend default baseURL. Health checks are available at `/health/live`, `/health/ready` and also under `/api/health/live` and `/api/health/ready`.
+- Backend menggunakan prefix canonical `/api` untuk endpoint aplikasi (misalnya `/api/providers`). Endpoint health tersedia pada `/health/live`, `/health/ready`, `/api/health/live`, dan `/api/health/ready`. Handler data mock pada root backend sudah dihapus agar tidak bertabrakan dengan route produksi.
 
 If you run into 404s for frontend requests during local development, either enable MSW in the frontend or ensure the backend is running and reachable at the host/port configured in `VITE_API_URL`.

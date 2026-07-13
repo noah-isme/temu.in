@@ -13,12 +13,14 @@ Bagian berikut masih dalam pengembangan dan belum production-ready:
 - cache slot Redis dan invalidasinya;
 - analytics admin lengkap, Swagger/OpenAPI, E2E test, metrics, dan deployment hardening.
 
+Laporan progres, bukti verifikasi, risiko, dan urutan pengembangan berikutnya tersedia di [docs/progress-report.md](docs/progress-report.md). Spesifikasi awal tetap tersedia di [docs/AGENT.md](docs/AGENT.md), sedangkan status sprint berada di [docs/project-checklist-and-sprints.md](docs/project-checklist-and-sprints.md).
+
 ## Struktur
 
 ```text
 backend/             API Go, migrasi, dan business logic
 frontend/            SPA React, test Vitest, dan Nginx image
-docs/                spesifikasi dan rencana sprint
+docs/                laporan progres, spesifikasi, dan rencana sprint
 nginx/               reverse proxy utama
 docker-compose.yml   PostgreSQL, Redis, API, SPA, dan proxy
 ```
