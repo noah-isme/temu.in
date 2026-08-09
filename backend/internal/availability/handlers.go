@@ -1,10 +1,12 @@
 package availability
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"temu.in/backend/internal/auth"
 	"temu.in/backend/internal/models"
 	"temu.in/backend/internal/provider"
@@ -14,12 +16,22 @@ import (
 type Handlers struct {
 	service         *Service
 	providerService provider.Service
+	serviceCatalog  ServiceCatalog
 }
 
-func NewHandlers(service *Service, providerService provider.Service) *Handlers {
+type ServiceCatalog interface {
+	GetService(id string) (*models.Service, error)
+}
+
+func NewHandlers(service *Service, providerService provider.Service, catalogs ...ServiceCatalog) *Handlers {
+	var serviceCatalog ServiceCatalog
+	if len(catalogs) > 0 {
+		serviceCatalog = catalogs[0]
+	}
 	return &Handlers{
 		service:         service,
 		providerService: providerService,
+		serviceCatalog:  serviceCatalog,
 	}
 }
 
@@ -63,51 +75,44 @@ func (h *Handlers) GetAvailableSlots(c *gin.Context) {
 		return
 	}
 
-	slots, err := h.service.repo.GetAvailableSlots(providerID, date)
+	serviceID := c.Query("serviceId")
+	if serviceID == "" {
+		serviceID = c.Query("service_id")
+	}
+	if serviceID == "" || h.serviceCatalog == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "serviceId is required"})
+		return
+	}
+	selectedService, err := h.serviceCatalog.GetService(serviceID)
+	if err != nil || selectedService == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "service not found"})
+		return
+	}
+	if !selectedService.IsActive || selectedService.ProviderID != providerID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "service is not available for this provider"})
+		return
+	}
+
+	slots, err := h.service.repo.GetAvailableSlots(providerID, date, selectedService.Duration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to calculate availability"})
 		return
 	}
 
-	formatted := make([]string, 0, len(slots))
-	for _, slot := range slots {
-		formatted = append(formatted, dateText+" "+slot.StartTime+"-"+slot.EndTime)
-	}
-	c.JSON(http.StatusOK, gin.H{"date": dateText, "provider_id": providerID, "available_slots": slots, "slots": formatted})
+	c.JSON(http.StatusOK, gin.H{"date": dateText, "provider_id": providerID, "service_id": serviceID, "available_slots": slots, "slots": slots})
 }
 
 func (h *Handlers) getUserClaims(c *gin.Context) (*auth.Claims, bool) {
-	v, ok := c.Get("user_claims")
+	claims, ok := auth.ClaimsFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
-		return nil, false
-	}
-	claims, ok := v.(*auth.Claims)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid claims"})
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
 		return nil, false
 	}
 	return claims, true
 }
 
 func (h *Handlers) checkOwnership(c *gin.Context, providerID string) bool {
-	claims, ok := h.getUserClaims(c)
-	if !ok {
-		return false
-	}
-
-	p, err := h.providerService.GetProvider(providerID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-		return false
-	}
-
-	// TODO: Allow admin role to override
-	if p.UserID != claims.UserID && claims.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
-		return false
-	}
-	return true
+	return auth.RequireProviderAccess(c, providerID, h.providerService)
 }
 
 // Schedules
@@ -121,10 +126,9 @@ type CreateScheduleRequest struct {
 
 func (h *Handlers) ListSchedules(c *gin.Context) {
 	providerID := c.Param("providerId")
-	// Public endpoint? Or owner only?
-	// Usually availability is public for booking, but "management" (CRUD) is private.
-	// This endpoint is under protected group in Register?
-	// We might want a public one later, but for now this is for dashboard.
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
 
 	schedules, err := h.service.GetSchedulesByProvider(providerID)
 	if err != nil {
@@ -182,7 +186,11 @@ func (h *Handlers) UpdateSchedule(c *gin.Context) {
 		IsAvailable: req.IsAvailable,
 	}
 
-	if err := h.service.UpdateSchedule(id, schedule); err != nil {
+	if err := h.service.UpdateSchedule(id, providerID, schedule); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -197,7 +205,11 @@ func (h *Handlers) DeleteSchedule(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteSchedule(id); err != nil {
+	if err := h.service.DeleteSchedule(id, providerID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -217,6 +229,9 @@ type CreateExceptionRequest struct {
 
 func (h *Handlers) ListExceptions(c *gin.Context) {
 	providerID := c.Param("providerId")
+	if !h.checkOwnership(c, providerID) {
+		return
+	}
 	// Optional date range
 	startStr := c.Query("start_date")
 	endStr := c.Query("end_date")
@@ -306,7 +321,11 @@ func (h *Handlers) UpdateException(c *gin.Context) {
 		Reason:      req.Reason,
 	}
 
-	if err := h.service.UpdateException(id, exception); err != nil {
+	if err := h.service.UpdateException(id, providerID, exception); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "exception not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -321,7 +340,11 @@ func (h *Handlers) DeleteException(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteException(id); err != nil {
+	if err := h.service.DeleteException(id, providerID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "exception not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

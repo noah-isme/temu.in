@@ -30,7 +30,7 @@ MSW selalu digunakan oleh test melalui `.env.test` dan `vitest.setup.ts`.
 - `/` — beranda;
 - `/providers` — daftar provider;
 - `/services` — daftar layanan;
-- `/booking` — alur pemilihan provider, tanggal, slot, booking, dan payment intent internal;
+- `/booking` — alur pemilihan provider, service, tanggal, slot berdurasi service, booking, dan payment intent Midtrans;
 - `/login` — login;
 - `/admin` — user management dan audit untuk user terautentikasi.
 
@@ -42,7 +42,7 @@ npm test -- --run
 npm run build
 ```
 
-Per 13 Juli 2026, lint, 4 file test/5 test, dan production build berhasil. Warning data browser yang usang tidak menggagalkan build. Audit dependency terakhir melaporkan 23 advisory (2 low, 6 moderate, 14 high, 1 critical); lakukan triase sebelum upgrade dan hindari `npm audit fix --force` tanpa regression test.
+Per 9 Agustus 2026, lint, 4 file test/5 test, dan production build berhasil. Warning data browser yang usang tidak menggagalkan build. Audit dependency terakhir melaporkan 23 advisory (2 low, 6 moderate, 14 high, 1 critical); lakukan triase sebelum upgrade dan hindari `npm audit fix --force` tanpa regression test.
 
 ## Container
 

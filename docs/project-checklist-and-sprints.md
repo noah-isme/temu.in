@@ -1,6 +1,6 @@
 # Checklist Implementasi & Rencana Sprint
 
-## Status aktual — 13 Juli 2026
+## Status aktual — 9 Agustus 2026
 
 Detail bukti QA, risiko, estimasi kesiapan, dan urutan implementasi terdapat di [progress-report.md](progress-report.md).
 
@@ -9,8 +9,10 @@ Detail bukti QA, risiko, estimasi kesiapan, dan urutan implementasi terdapat di 
 - [x] Authentication JWT/refresh token, provider, service, availability CRUD, booking, favorites, reviews, dan admin user management dasar.
 - [x] Frontend routing, authentication, provider/service list, booking flow, dan admin management dasar.
 - [x] Pipeline lokal lint → test → build dan workflow CI dengan migration smoke test.
-- [ ] Integrasi Midtrans serta signature verification dan idempotency webhook.
-- [ ] Integrasi SendGrid, template email, retry queue, reminder, dan receipt.
+- [x] Integrasi Midtrans melalui provider interface, amount server-side, authenticated payment endpoints, signed webhook, state transition, dan idempotency.
+- [x] Integrasi SendGrid, durable notification outbox, template rendering, retry/dead-letter worker, reminder, provider notification, dan payment receipt.
+- [x] Booking mewajibkan `serviceId`, memvalidasi ownership service/provider, menggunakan harga/durasi server-side, dan memakai kontrak slot bertipe.
+- [x] Authorization policy provider/admin dan query availability yang ter-scope dengan provider ID, termasuk test cross-tenant.
 - [ ] Redis slot cache/invalidation dan pengujian concurrency end-to-end.
 - [ ] Swagger/OpenAPI, E2E test, observability, deployment runbook, dan production hardening.
 
@@ -22,7 +24,7 @@ Catatan: checklist lama di bawah dipertahankan sebagai scope awal. Status aktual
 - [ ] Rancang database PostgreSQL sesuai skema dan indeks yang diwajibkan.
 - [ ] Implementasikan seluruh endpoint backend (auth, providers, services, availability, bookings, payments, admin) dengan logika bisnis yang diberikan.
 - [ ] Bangun frontend React lengkap dengan modul auth, booking, provider, admin dashboard, dan komponen UI yang disyaratkan.
-- [ ] Integrasikan Midtrans Snap untuk pembayaran dan SendGrid untuk email notifikasi.
+- [x] Integrasikan Midtrans Snap untuk pembayaran dan SendGrid untuk email notifikasi.
 - [ ] Terapkan QA pipeline: lint, test, build untuk frontend dan backend; sertakan dokumentasi Swagger dan automasi CI/CD.
 
 ### Issue 1 – Fondasi Infrastruktur & Lingkungan
@@ -77,7 +79,7 @@ Fokus: monitoring, email templates, worker queue, build & deploy pipeline.
    - Deliverable: availability + booking logic, frontend auth/provider listing/booking flow, notifikasi awal.
 
 3. **Sprint 3 – Payments, Admin, Observability**  
-   - Deliverable: Midtrans integration, admin dashboard, analytics, QA hardening, deployment checklist.
+   - Deliverable: Midtrans dan notification outbox sudah terintegrasi; admin dashboard, analytics, QA hardening, dan deployment checklist masih berjalan.
 
 ## Developer notes — local dev & MSW
 

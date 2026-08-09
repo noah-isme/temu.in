@@ -1,6 +1,10 @@
 package router
 
 import (
+	"context"
+	"errors"
+	"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -13,6 +17,7 @@ import (
 	"temu.in/backend/internal/config"
 	"temu.in/backend/internal/favorite"
 	"temu.in/backend/internal/health"
+	"temu.in/backend/internal/models"
 	"temu.in/backend/internal/notification"
 	"temu.in/backend/internal/payment"
 	"temu.in/backend/internal/provider"
@@ -23,18 +28,68 @@ import (
 )
 
 type Router struct {
-	engine *gin.Engine
-	cfg    *config.Config
-	db     *gorm.DB
-	cache  *redis.Client
+	engine             *gin.Engine
+	cfg                *config.Config
+	db                 *gorm.DB
+	cache              *redis.Client
+	notificationSvc    notification.Service
+	notificationWorker *notification.Worker
 }
 
 func New(engine *gin.Engine, cfg *config.Config, db *gorm.DB, cache *redis.Client) *Router {
+	fromEmail := "no-reply@temu.in"
+	apiKey := ""
+	templateIDs := map[string]string{}
+	if cfg != nil {
+		if cfg.SendGridFromEmail != "" {
+			fromEmail = cfg.SendGridFromEmail
+		}
+		apiKey = cfg.SendGridAPIKey
+		templateIDs = sendGridTemplateIDs(cfg)
+	}
+	notificationRepo := notification.NewRepository(db)
+	notificationSvc := notification.NewService(notificationRepo)
+	reminderScheduler, _ := notificationSvc.(notification.ReminderScheduler)
 	return &Router{
-		engine: engine,
-		cfg:    cfg,
-		db:     db,
-		cache:  cache,
+		engine:             engine,
+		cfg:                cfg,
+		db:                 db,
+		cache:              cache,
+		notificationSvc:    notificationSvc,
+		notificationWorker: notification.NewWorker(notificationRepo, notification.NewSendGridProvider(apiKey, fromEmail, templateIDs), notification.WorkerConfig{}, reminderScheduler),
+	}
+}
+
+func sendGridTemplateIDs(cfg *config.Config) map[string]string {
+	ids := make(map[string]string)
+	for _, template := range []struct {
+		name string
+		id   string
+	}{
+		{models.NotificationTypeBookingConfirmationCustomer, cfg.SendGridBookingTemplateID},
+		{models.NotificationTypeBookingConfirmationProvider, cfg.SendGridBookingTemplateID},
+		{models.NotificationTypeBookingCancellationCustomer, cfg.SendGridCancellationTemplateID},
+		{models.NotificationTypeBookingCancellationProvider, cfg.SendGridCancellationTemplateID},
+		{models.NotificationTypeBookingReminderCustomer, cfg.SendGridReminderTemplateID},
+		{models.NotificationTypeBookingReminderProvider, cfg.SendGridReminderTemplateID},
+		{models.NotificationTypePaymentReceipt, cfg.SendGridReceiptTemplateID},
+		{models.NotificationTypePasswordReset, cfg.SendGridAuthTemplateID},
+		{models.NotificationTypeEmailVerification, cfg.SendGridAuthTemplateID},
+	} {
+		if template.id != "" {
+			ids[template.name] = template.id
+		}
+	}
+	return ids
+}
+
+func (r *Router) StartBackgroundWorkers(ctx context.Context) {
+	if r.notificationWorker != nil {
+		go func() {
+			if err := r.notificationWorker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("notification worker stopped: %v", err)
+			}
+		}()
 	}
 }
 
@@ -67,10 +122,7 @@ func (r *Router) registerAuth() {
 		tokenRepo = token.NewRepository(r.db)
 	}
 
-	emailProvider := notification.NewConsoleEmailProvider()
-	notificationSvc := notification.NewService(emailProvider)
-
-	handler := authhandler.NewHandler(repo, r.cfg, tokenRepo, notificationSvc)
+	handler := authhandler.NewHandler(repo, r.cfg, tokenRepo, r.notificationSvc)
 	api := r.engine.Group("/api")
 	handler.RegisterRoutes(api.Group("/auth"))
 
@@ -110,6 +162,8 @@ func (r *Router) registerAdmin() {
 func (r *Router) registerBookings() {
 	bookingRepo := booking.NewRepository(r.db)
 	paymentRepo := payment.NewRepository(r.db)
+	paymentProvider := payment.NewMidtransProvider(r.cfg.MidtransServerKey, r.cfg.MidtransClientKey, r.cfg.MidtransBaseURL)
+	paymentService := payment.NewService(paymentRepo, paymentProvider)
 
 	// Create availability service for conflict detection
 	availabilityRepo := availability.NewRepository(r.db)
@@ -117,13 +171,12 @@ func (r *Router) registerBookings() {
 
 	providerRepo := provider.NewRepository(r.db)
 	providerSvc := provider.NewService(providerRepo)
+	serviceRepo := service.NewRepository(r.db)
+	serviceCatalog := service.NewService(serviceRepo)
 
 	userRepo := user.NewRepository(r.db)
 
-	emailProvider := notification.NewConsoleEmailProvider()
-	notificationSvc := notification.NewService(emailProvider)
-
-	handlers := booking.NewHandlersWithAvailability(bookingRepo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc)
+	handlers := booking.NewHandlersWithDependencies(bookingRepo, paymentRepo, availabilitySvc, r.notificationSvc, userRepo, providerSvc, serviceCatalog, paymentService)
 
 	api := r.engine.Group("/api")
 	bookingsGroup := api.Group("/")
@@ -168,8 +221,10 @@ func (r *Router) registerAvailability() {
 
 	providerRepo := provider.NewRepository(r.db)
 	providerSvc := provider.NewService(providerRepo)
+	serviceRepo := service.NewRepository(r.db)
+	serviceCatalog := service.NewService(serviceRepo)
 
-	handlers := availability.NewHandlers(svc, providerSvc)
+	handlers := availability.NewHandlers(svc, providerSvc, serviceCatalog)
 
 	api := r.engine.Group("/api")
 	handlers.Register(api.Group("/"), r.cfg.JWTSecret)
@@ -192,10 +247,42 @@ func (r *Router) registerReviews() {
 func (r *Router) registerPayments() {
 	bookingRepo := booking.NewRepository(r.db)
 	paymentRepo := payment.NewRepository(r.db)
-	handlers := payment.NewHandlersWithFinalizer(paymentRepo, func(paymentID uint, status string) error {
-		return bookingRepo.SetStatusByPayment(paymentID, status)
+	paymentProvider := payment.NewMidtransProvider(r.cfg.MidtransServerKey, r.cfg.MidtransClientKey, r.cfg.MidtransBaseURL)
+	paymentService := payment.NewService(paymentRepo, paymentProvider)
+	serviceRepo := service.NewRepository(r.db)
+	serviceCatalog := service.NewService(serviceRepo)
+	handlers := payment.NewHandlersWithDependencies(paymentRepo, paymentService, serviceCatalog, func(paymentID uint, status string) error {
+		if err := bookingRepo.SetStatusByPayment(paymentID, status); err != nil {
+			return err
+		}
+		if status != models.PaymentStatusSucceeded || r.notificationSvc == nil {
+			return nil
+		}
+		receiptService, ok := r.notificationSvc.(notification.PaymentReceiptService)
+		if !ok {
+			return errors.New("payment receipt notification service is unavailable")
+		}
+
+		bookingRecord, err := bookingRepo.FindByPaymentID(paymentID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		paymentRecord, err := paymentRepo.FindByID(paymentID)
+		if err != nil {
+			return err
+		}
+		if err := r.notificationSvc.SendBookingConfirmation(context.Background(), bookingRecord, &bookingRecord.User, &bookingRecord.ServiceProvider); err != nil {
+			return err
+		}
+		return receiptService.SendPaymentReceipt(context.Background(), bookingRecord, &bookingRecord.User, paymentRecord)
 	})
 
 	api := r.engine.Group("/api")
-	handlers.Register(api.Group("/"))
+	protected := api.Group("/")
+	protected.Use(authhandler.Middleware(r.cfg.JWTSecret))
+	handlers.Register(protected)
+	handlers.RegisterWebhook(api.Group("/"))
 }

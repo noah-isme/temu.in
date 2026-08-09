@@ -1,14 +1,17 @@
 # Master Prompt: Platform Pemesanan Janji Temu (Booking System)
 
-> **Status dokumen — 13 Juli 2026:** Dokumen ini adalah spesifikasi dan target awal, bukan laporan kondisi runtime terbaru. Implementasi aktual menggunakan prefix API `/api`, user ID bertipe integer, provider/service ID bertipe UUID, dan constraint database untuk mencegah booking tumpang tindih. Gunakan [progress-report.md](progress-report.md) untuk progres terverifikasi dan rekomendasi berikutnya, serta [project-checklist-and-sprints.md](project-checklist-and-sprints.md) untuk status sprint.
+> **Status dokumen — 9 Agustus 2026:** Dokumen ini tetap merupakan spesifikasi dan target awal, bukan sumber kebenaran tunggal untuk kondisi runtime. Implementasi aktual menggunakan prefix API `/api`, user ID bertipe integer, provider/service ID bertipe UUID, constraint database untuk mencegah booking tumpang tindih, provider Midtrans dengan signed webhook, serta notification outbox/worker SendGrid. Gunakan [progress-report.md](progress-report.md) untuk progres terverifikasi dan rekomendasi berikutnya, serta [project-checklist-and-sprints.md](project-checklist-and-sprints.md) untuk status sprint.
 
 ## Ringkasan implementasi aktual
 
 - Fondasi monorepo, Docker Compose, PostgreSQL, Redis, backend, frontend, dan Nginx sudah berjalan end-to-end.
 - Authentication, provider/service CRUD, availability, booking, favorites, reviews, dan admin user management dasar sudah tersedia.
-- Slot availability 30 menit dan exception jadwal sudah dihitung oleh backend; overlap booking ditolak oleh PostgreSQL.
-- Backend `go vet` dan `go test -race`, serta frontend lint, 5 test, dan production build telah lulus.
-- Midtrans, SendGrid/worker, Redis slot cache, Swagger, E2E, observability, dan hardening produksi masih menjadi pekerjaan berikutnya.
+- Slot availability dihitung berdasarkan durasi service dan exception jadwal; overlap booking ditolak oleh PostgreSQL.
+- Booking memerlukan `serviceId`, memvalidasi service/provider di server, dan memakai kontrak slot `{date,start_time,end_time}`.
+- Backend `go vet`/unit test dan frontend lint, test, serta production build telah lulus pada verifikasi terakhir.
+- Midtrans dan SendGrid/worker sudah terintegrasi; Redis slot cache, Swagger, E2E, observability, dan hardening produksi masih menjadi pekerjaan berikutnya.
+
+Contoh endpoint, schema, dan checklist di bagian bawah adalah target desain historis. Untuk route, auth/ownership policy, state transition, konfigurasi environment, dan status fitur yang benar-benar berjalan, ikuti laporan progres serta README.
 
 ---
 

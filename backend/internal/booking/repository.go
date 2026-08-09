@@ -2,8 +2,10 @@ package booking
 
 import (
 	"errors"
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"temu.in/backend/internal/models"
 )
@@ -25,27 +27,19 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-// LinkPayment links a booking to a payment by updating the booking's payment_id
-func (r *Repository) LinkPayment(bookingID uint, paymentID uint) error {
-	return r.db.Model(&models.Booking{}).Where("id = ?", bookingID).Update("payment_id", paymentID).Error
-}
-
-// CreateWithPayment creates a payment and booking in a single transaction
-// and links the booking to the payment. Returns the created payment.
-func (r *Repository) CreateWithPayment(b *models.Booking, amount int64, currency string) (*models.Payment, error) {
-	var p models.Payment
+// CreateWithPayment creates a provider-backed payment and booking in a single
+// local transaction. The payment has already been prepared by the provider
+// service; this method only persists the trusted server-side amount and token.
+func (r *Repository) CreateWithPayment(b *models.Booking, p *models.Payment) error {
+	if p == nil {
+		return errors.New("payment is required")
+	}
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		p = models.Payment{
-			IntentID:     "pi_" + time.Now().Format("20060102150405"),
-			ClientSecret: "cs_" + time.Now().Format("150405"),
-			Amount:       amount,
-			Currency:     currency,
-			Status:       "created",
-		}
-		if err := tx.Create(&p).Error; err != nil {
+		if err := tx.Create(p).Error; err != nil {
 			return err
 		}
-		b.Status = "pending"
+		b.Status = models.BookingStatusPending
+		b.PaymentStatus = models.BookingPaymentPending
 		if err := tx.Create(b).Error; err != nil {
 			return err
 		}
@@ -56,14 +50,52 @@ func (r *Repository) CreateWithPayment(b *models.Booking, amount int64, currency
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &p, nil
+	b.PaymentID = &p.ID
+	return nil
 }
 
-// SetStatusByPayment sets booking status for booking linked to a payment
+// SetStatusByPayment applies a provider state to the linked booking and keeps
+// booking.status and booking.payment_status in sync. Replaying a webhook is a
+// no-op once the booking has reached the same state.
 func (r *Repository) SetStatusByPayment(paymentID uint, status string) error {
-	return r.db.Model(&models.Booking{}).Where("payment_id = ?", paymentID).Update("status", status).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var booking models.Booking
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_id = ?", paymentID).First(&booking).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Standalone payment intents are valid, but have no booking to update.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		updates := map[string]interface{}{}
+		switch status {
+		case models.PaymentStatusPending, models.PaymentStatusCreated:
+			updates["payment_status"] = models.BookingPaymentPending
+			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusPending) {
+				updates["status"] = models.BookingStatusPending
+			}
+		case models.PaymentStatusSucceeded, models.BookingStatusConfirmed:
+			updates["payment_status"] = models.BookingPaymentPaid
+			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusConfirmed) || booking.Status == models.BookingStatusConfirmed {
+				updates["status"] = models.BookingStatusConfirmed
+			}
+		case models.PaymentStatusFailed, models.PaymentStatusExpired, models.PaymentStatusCancelled:
+			updates["payment_status"] = models.BookingPaymentFailed
+			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusPaymentFailed) || booking.Status == models.BookingStatusPaymentFailed {
+				updates["status"] = models.BookingStatusPaymentFailed
+			}
+		default:
+			return nil
+		}
+		if len(updates) == 0 {
+			return nil
+		}
+		return tx.Model(&models.Booking{}).Where("id = ?", booking.ID).Updates(updates).Error
+	})
 }
 
 func (r *Repository) Create(b *models.Booking) error {
@@ -103,6 +135,17 @@ func (r *Repository) FindByIDForUser(id uint, userID uint) (*models.Booking, err
 func (r *Repository) FindByID(id uint) (*models.Booking, error) {
 	var b models.Booking
 	if err := r.db.First(&b, id).Error; err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// FindByPaymentID loads the booking and both notification recipients for a
+// payment finalization event. The provider relationship includes its owner so
+// provider receipts are always addressed from durable booking data.
+func (r *Repository) FindByPaymentID(paymentID uint) (*models.Booking, error) {
+	var b models.Booking
+	if err := r.db.Preload("User").Preload("ServiceProvider").Preload("ServiceProvider.User").Where("payment_id = ?", paymentID).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil

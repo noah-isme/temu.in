@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_backend_internal_database_migrations_000005_notification_outbox_down_sql", "label": "000005_notification_outbox.down.sql", "file_type": "code", "source_file": "backend/internal/database/migrations/000005_notification_outbox.down.sql", "source_location": null}], "edges": []}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchServices, fetchProviders, fetchAvailabilityForDate, createBooking, confirmPayment, Provider, Service } from '../api';
+import { confirmPayment, createBooking, fetchAvailabilityForDate, fetchProviders, fetchServices, Provider, Service, TimeSlot } from '../api';
 import toast from '../lib/toast';
 
 export default function BookingFlow(): JSX.Element {
@@ -10,8 +10,9 @@ export default function BookingFlow(): JSX.Element {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
-  const [slots, setSlots] = useState<string[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+  const [customerName, setCustomerName] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const d = new Date();
     return d.toISOString().slice(0, 10);
@@ -19,7 +20,7 @@ export default function BookingFlow(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [forceFailPayment, setForceFailPayment] = useState(false);
+  const [paymentLink, setPaymentLink] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const { data: servicesData, isLoading: servicesLoadingQuery } = useQuery(['services'], fetchServices);
@@ -33,75 +34,125 @@ export default function BookingFlow(): JSX.Element {
   }, [servicesData, providersData, servicesLoadingQuery, providersLoadingQuery]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadSlots() {
-      if (!selectedProvider) return setSlots([]);
+      if (!selectedProvider || !selectedService) {
+        setSlots([]);
+        setSelectedSlot(null);
+        return;
+      }
       try {
         setSlots([]);
-        const data = await fetchAvailabilityForDate(selectedProvider, selectedDate);
-        setSlots(data.slots || []);
+        setSelectedSlot(null);
+        const data = await fetchAvailabilityForDate(selectedProvider, selectedDate, selectedService);
+        if (!cancelled) setSlots((data.slots || []) as TimeSlot[]);
       } catch (err) {
-        console.error('Failed to fetch availability', err);
-        setSlots([]);
+        if (!cancelled) {
+          console.error('Failed to fetch availability', err);
+          setSlots([]);
+        }
       }
     }
+
     loadSlots();
-  }, [selectedProvider, selectedDate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider, selectedService, selectedDate]);
 
   async function handleConfirm() {
-    if (!selectedProvider) return alert('Pilih provider');
+    if (!selectedService) {
+      setError('Pilih service');
+      return;
+    }
+    if (!selectedProvider) {
+      setError('Pilih provider');
+      return;
+    }
+    if (!customerName.trim()) {
+      setError('Masukkan nama pelanggan');
+      return;
+    }
+    if (!selectedSlot) {
+      setError('Pilih waktu booking');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
+    setPaymentLink(null);
     try {
-      // Transactional: request backend to create booking+payment in a single operation
-      const amount = 100000; // mock amount
-      const res = await createBooking({ providerId: selectedProvider, customerName: 'Demo User', slot: selectedSlot, amount, currency: 'IDR' });
+      const res = await createBooking({
+        providerId: selectedProvider,
+        serviceId: selectedService,
+        customerName: customerName.trim(),
+        slot: selectedSlot,
+      });
 
-      // backend returns booking and payment intent
       const booking = res.booking;
       const intent = res.payment;
+      queryClient.invalidateQueries(['bookings']);
+
       if (!intent) {
-        setError('Payment creation failed');
+        const message = `Booking confirmed: ${booking.id}`;
+        setSuccessMessage(message);
+        toast.success(message);
         return;
       }
 
-      const clientSecret = forceFailPayment ? `${intent.client_secret}_fail` : intent.client_secret;
+      // Midtrans returns a signed checkout URL/token. The browser must finish
+      // payment there; the backend will trust only the signed webhook/status.
+      if (intent.redirect_url) {
+        const message = `Booking created: ${booking.id}. Continue to payment.`;
+        setSuccessMessage(message);
+        setPaymentLink(intent.redirect_url);
+        toast.success(message);
+        return;
+      }
 
-      // confirm payment using client_secret
-      const paymentResult = await confirmPayment(clientSecret);
-
+      // Kept for providers/test adapters that expose a server-side status
+      // endpoint without a redirect URL. This is still verified by the backend.
+      const paymentResult = await confirmPayment(intent.client_secret, intent.order_id);
       if (paymentResult.status === 'succeeded') {
         const message = `Booking & payment successful: ${booking.id} (tx: ${paymentResult.transactionId})`;
         setSuccessMessage(message);
         toast.success(message);
         queryClient.invalidateQueries(['providers']);
-        queryClient.invalidateQueries(['bookings']);
       } else {
-        setError(paymentResult.message || 'Payment failed');
-        toast.error(paymentResult.message || 'Payment failed');
+        const message = paymentResult.message || `Payment status: ${paymentResult.status}`;
+        setError(message);
+        toast.error(message);
       }
     } catch {
-      setError('Payment failed');
-      toast.error('Payment failed');
+      setError('Booking or payment failed');
+      toast.error('Booking or payment failed');
     } finally {
       setLoading(false);
     }
   }
 
+  const service = services.find((item) => item.id === selectedService);
+
   return (
     <section className="max-w-2xl">
       <h2 className="text-2xl font-semibold mb-4">Booking Flow</h2>
+
       <div className="mb-4">
         <label htmlFor="booking-service" className="block text-sm mb-1">Service</label>
         {servicesLoading ? (
           <div className="flex items-center gap-2"><div className="h-6 w-6"><svg className="animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.2" /><path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" /></svg></div><span>Loading services...</span></div>
         ) : (
-          <select id="booking-service" className="w-full rounded border p-2" value={selectedService ?? ''} onChange={(e) => setSelectedService(e.target.value || null)}>
-            <option value="">-- pilih service --</option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          <>
+            <select id="booking-service" className="w-full rounded border p-2" value={selectedService ?? ''} onChange={(e) => setSelectedService(e.target.value || null)}>
+              <option value="">-- pilih service --</option>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            {service && <p className="mt-1 text-sm text-muted-foreground">{service.durationMinutes} minutes · IDR {service.price.toLocaleString()}</p>}
+          </>
         )}
       </div>
 
@@ -120,11 +171,16 @@ export default function BookingFlow(): JSX.Element {
       </div>
 
       <div className="mb-4">
+        <label htmlFor="booking-customer-name" className="block text-sm mb-1">Customer name</label>
+        <input id="booking-customer-name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded border p-2" required />
+      </div>
+
+      <div className="mb-4">
         <label htmlFor="booking-date" className="block text-sm mb-1">Date</label>
         <input id="booking-date" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="rounded border p-2" />
 
         <label className="block text-sm mb-1 mt-4">Available slots</label>
-        {slots.length === 0 && <p className="text-sm text-muted-foreground">Pilih provider & tanggal untuk melihat slots</p>}
+        {slots.length === 0 && <p className="text-sm text-muted-foreground">Pilih service, provider & tanggal untuk melihat slots</p>}
         <ul className="grid gap-2">
           {slots.length === 0
             ? Array.from({ length: 3 }).map((_, i) => (
@@ -132,26 +188,23 @@ export default function BookingFlow(): JSX.Element {
                   <div className="h-4 w-48 bg-slate-200 rounded" />
                 </li>
               ))
-            : slots.map((s) => (
-                <li key={s}>
-                  <label className="flex items-center gap-2">
-                    <input type="radio" checked={selectedSlot === s} onChange={() => setSelectedSlot(s)} />
-                    <span>{s}</span>
-                  </label>
-                </li>
-              ))}
+            : slots.map((slot) => {
+                const key = `${slot.date}-${slot.start_time}-${slot.end_time}`;
+                return (
+                  <li key={key}>
+                    <label className="flex items-center gap-2">
+                      <input type="radio" checked={selectedSlot?.date === slot.date && selectedSlot?.start_time === slot.start_time && selectedSlot?.end_time === slot.end_time} onChange={() => setSelectedSlot(slot)} />
+                      <span>{slot.start_time}–{slot.end_time}</span>
+                    </label>
+                  </li>
+                );
+              })}
         </ul>
-      </div>
-
-      <div className="mb-4">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={forceFailPayment} onChange={(e) => setForceFailPayment(e.target.checked)} />
-          <span className="text-sm">Force payment fail (for testing)</span>
-        </label>
       </div>
 
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
       {successMessage && <p className="text-sm text-green-700 mb-2">{successMessage}</p>}
+      {paymentLink && <a className="inline-block mb-3 text-primary underline" href={paymentLink} target="_blank" rel="noreferrer">Continue to payment</a>}
 
       <div>
         <button className="rounded bg-primary px-3 py-1 text-white flex items-center gap-2" disabled={loading} onClick={handleConfirm}>

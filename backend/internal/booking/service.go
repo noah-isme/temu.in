@@ -3,6 +3,8 @@ package booking
 import (
 	"context"
 	"errors"
+	"log"
+	"math"
 	"time"
 
 	"temu.in/backend/internal/availability"
@@ -11,11 +13,13 @@ import (
 )
 
 var (
-	ErrBookingNotFound = errors.New("booking not found")
-	ErrUnauthorized    = errors.New("unauthorized access to booking")
-	ErrInvalidInput    = errors.New("invalid booking input")
-	ErrSlotUnavailable = errors.New("requested time slot is not available")
-	ErrBookingConflict = errors.New("booking conflicts with existing reservation")
+	ErrBookingNotFound    = errors.New("booking not found")
+	ErrUnauthorized       = errors.New("unauthorized access to booking")
+	ErrInvalidInput       = errors.New("invalid booking input")
+	ErrServiceNotFound    = errors.New("service not found")
+	ErrPaymentUnavailable = errors.New("payment provider is unavailable")
+	ErrSlotUnavailable    = errors.New("requested time slot is not available")
+	ErrBookingConflict    = errors.New("booking conflicts with existing reservation")
 )
 
 type CreateBookingInput struct {
@@ -39,11 +43,12 @@ type NotificationService interface {
 
 type Service struct {
 	repo            *Repository
-	paymentRepo     *payment.Repository
 	availabilitySvc AvailabilityService
 	notificationSvc NotificationService
 	userRepo        UserRepo
 	providerSvc     ProviderService
+	serviceCatalog  ServiceCatalog
+	paymentCreator  PaymentCreator
 }
 
 type UserRepo interface {
@@ -54,28 +59,36 @@ type ProviderService interface {
 	GetProvider(id string) (*models.ServiceProvider, error)
 }
 
+type ServiceCatalog interface {
+	GetService(id string) (*models.Service, error)
+}
+
+type PaymentCreator interface {
+	Prepare(ctx context.Context, req payment.CreateRequest) (*models.Payment, error)
+}
+
 func NewService(repo *Repository, paymentRepo *payment.Repository, userRepo UserRepo, providerSvc ProviderService) *Service {
-	return &Service{
-		repo:        repo,
-		paymentRepo: paymentRepo,
-		userRepo:    userRepo,
-		providerSvc: providerSvc,
-	}
+	return NewServiceWithFullDeps(repo, paymentRepo, nil, nil, userRepo, providerSvc, nil, nil)
 }
 
 func NewServiceWithDeps(repo *Repository, paymentRepo *payment.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService) *Service {
+	return NewServiceWithFullDeps(repo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc, nil, nil)
+}
+
+func NewServiceWithFullDeps(repo *Repository, paymentRepo *payment.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService, serviceCatalog ServiceCatalog, paymentCreator PaymentCreator) *Service {
 	return &Service{
 		repo:            repo,
-		paymentRepo:     paymentRepo,
 		availabilitySvc: availabilitySvc,
 		notificationSvc: notificationSvc,
 		userRepo:        userRepo,
 		providerSvc:     providerSvc,
+		serviceCatalog:  serviceCatalog,
+		paymentCreator:  paymentCreator,
 	}
 }
 
 func (s *Service) notifyConfirmation(ctx context.Context, booking *models.Booking) {
-	if s.notificationSvc == nil {
+	if s.notificationSvc == nil || s.userRepo == nil || s.providerSvc == nil {
 		return
 	}
 
@@ -89,11 +102,13 @@ func (s *Service) notifyConfirmation(ctx context.Context, booking *models.Bookin
 		return
 	}
 
-	_ = s.notificationSvc.SendBookingConfirmation(ctx, booking, user, provider)
+	if err := s.notificationSvc.SendBookingConfirmation(ctx, booking, user, provider); err != nil {
+		log.Printf("queue booking confirmation notifications: %v", err)
+	}
 }
 
 func (s *Service) notifyCancellation(ctx context.Context, booking *models.Booking) {
-	if s.notificationSvc == nil {
+	if s.notificationSvc == nil || s.userRepo == nil || s.providerSvc == nil {
 		return
 	}
 
@@ -107,7 +122,9 @@ func (s *Service) notifyCancellation(ctx context.Context, booking *models.Bookin
 		return
 	}
 
-	_ = s.notificationSvc.SendBookingCancellation(ctx, booking, user, provider)
+	if err := s.notificationSvc.SendBookingCancellation(ctx, booking, user, provider); err != nil {
+		log.Printf("queue booking cancellation notifications: %v", err)
+	}
 }
 
 type AvailabilityService interface {
@@ -115,9 +132,26 @@ type AvailabilityService interface {
 }
 
 func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (*models.Booking, *models.Payment, error) {
-	if input.ProviderID == "" {
+	if input.ProviderID == "" || input.ServiceID == nil || *input.ServiceID == "" || s.serviceCatalog == nil {
 		return nil, nil, ErrInvalidInput
 	}
+
+	selectedService, err := s.serviceCatalog.GetService(*input.ServiceID)
+	if err != nil || selectedService == nil {
+		return nil, nil, ErrServiceNotFound
+	}
+	if !selectedService.IsActive || selectedService.ProviderID != input.ProviderID || selectedService.Duration <= 0 || selectedService.Price < 0 || math.IsNaN(selectedService.Price) || math.IsInf(selectedService.Price, 0) {
+		return nil, nil, ErrInvalidInput
+	}
+	expectedEnd := input.StartTime.Add(time.Duration(selectedService.Duration) * time.Minute)
+	if !input.StartTime.Before(input.EndTime) || !expectedEnd.Equal(input.EndTime) {
+		return nil, nil, ErrInvalidInput
+	}
+	amountFloat := math.Round(selectedService.Price)
+	if amountFloat > float64(math.MaxInt64) || (selectedService.Price > 0 && amountFloat <= 0) {
+		return nil, nil, ErrInvalidInput
+	}
+	amount := int64(amountFloat)
 
 	// Check for availability conflicts if availability service is available
 	if s.availabilitySvc != nil {
@@ -150,17 +184,30 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 		StartTime:     input.StartTime,
 		EndTime:       input.EndTime,
 		CustomerNotes: input.Notes,
-		Status:        "pending",
-		PaymentStatus: "unpaid",
+		Status:        models.BookingStatusPending,
+		PaymentStatus: models.BookingPaymentUnpaid,
 	}
 
-	if input.Amount > 0 {
-		currency := input.Currency
-		if currency == "" {
-			currency = "IDR"
+	if amount > 0 {
+		if s.paymentCreator == nil {
+			return nil, nil, ErrPaymentUnavailable
 		}
-		p, err := s.repo.CreateWithPayment(booking, input.Amount, currency)
+		p, err := s.paymentCreator.Prepare(ctx, payment.CreateRequest{
+			UserID:      input.UserID,
+			ProviderID:  input.ProviderID,
+			ServiceID:   *input.ServiceID,
+			Amount:      amount,
+			Currency:    "IDR",
+			Description: selectedService.Name,
+		})
 		if err != nil {
+			return nil, nil, err
+		}
+		if p == nil || p.Amount != amount || p.Currency != "IDR" {
+			return nil, nil, ErrPaymentUnavailable
+		}
+		p.UserID = input.UserID
+		if err := s.repo.CreateWithPayment(booking, p); err != nil {
 			if IsConflictError(err) {
 				return nil, nil, ErrBookingConflict
 			}
@@ -169,7 +216,8 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 		return booking, p, nil
 	}
 
-	booking.Status = "confirmed"
+	booking.Status = models.BookingStatusConfirmed
+	booking.PaymentStatus = models.BookingPaymentNotRequired
 	if err := s.repo.Create(booking); err != nil {
 		if IsConflictError(err) {
 			return nil, nil, ErrBookingConflict
@@ -177,7 +225,7 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 		return nil, nil, err
 	}
 
-	go s.notifyConfirmation(context.Background(), booking)
+	s.notifyConfirmation(ctx, booking)
 
 	return booking, nil, nil
 }
@@ -206,19 +254,19 @@ func (s *Service) CancelBooking(ctx context.Context, id uint, userID uint, reaso
 		return ErrBookingNotFound
 	}
 
-	if booking.Status == "cancelled" {
+	if booking.Status == models.BookingStatusCancelled {
 		return nil
 	}
 
-	if booking.Status == "completed" {
+	if booking.Status == models.BookingStatusCompleted {
 		return errors.New("cannot cancel completed booking")
 	}
 
-	if err := s.repo.UpdateStatus(id, "cancelled", reason); err != nil {
+	if err := s.repo.UpdateStatus(id, models.BookingStatusCancelled, reason); err != nil {
 		return err
 	}
 
-	go s.notifyCancellation(context.Background(), booking)
+	s.notifyCancellation(ctx, booking)
 
 	return nil
 }
@@ -229,7 +277,7 @@ func (s *Service) RescheduleBooking(ctx context.Context, id uint, userID uint, n
 		return ErrBookingNotFound
 	}
 
-	if booking.Status == "cancelled" || booking.Status == "completed" {
+	if booking.Status == models.BookingStatusCancelled || booking.Status == models.BookingStatusCompleted {
 		return errors.New("cannot reschedule cancelled or completed booking")
 	}
 
@@ -274,17 +322,20 @@ func (s *Service) ConfirmBooking(ctx context.Context, id uint) error {
 		return ErrBookingNotFound
 	}
 
-	if booking.Status != "pending" {
+	if booking.Status != models.BookingStatusPending {
 		return errors.New("booking is not in pending state")
 	}
+	if booking.PaymentID != nil && booking.PaymentStatus != models.BookingPaymentPaid {
+		return errors.New("payment must succeed before confirming booking")
+	}
 
-	if err := s.repo.UpdateStatus(id, "confirmed", ""); err != nil {
+	if err := s.repo.UpdateStatus(id, models.BookingStatusConfirmed, ""); err != nil {
 		return err
 	}
 
 	updatedBooking, err := s.repo.FindByID(id)
 	if err == nil {
-		go s.notifyConfirmation(context.Background(), updatedBooking)
+		s.notifyConfirmation(ctx, updatedBooking)
 	}
 
 	return nil
@@ -296,34 +347,16 @@ func (s *Service) CompleteBooking(ctx context.Context, id uint) error {
 		return ErrBookingNotFound
 	}
 
-	if booking.Status != "confirmed" {
+	if booking.Status != models.BookingStatusConfirmed {
 		return errors.New("booking must be confirmed before completion")
 	}
+	if booking.PaymentID != nil && booking.PaymentStatus != models.BookingPaymentPaid {
+		return errors.New("payment must succeed before completion")
+	}
 
-	return s.repo.UpdateStatus(id, "completed", "")
+	return s.repo.UpdateStatus(id, models.BookingStatusCompleted, "")
 }
 
 func (s *Service) GetProviderStats(ctx context.Context, providerID string) (*models.ProviderStats, error) {
 	return s.repo.GetProviderStats(providerID)
-}
-
-func (s *Service) LinkPaymentToBooking(ctx context.Context, bookingID uint, clientSecret string, intentID string) error {
-	if s.paymentRepo == nil {
-		return nil
-	}
-
-	var p *models.Payment
-	var err error
-
-	if clientSecret != "" {
-		p, err = s.paymentRepo.FindByClientSecret(clientSecret)
-	} else if intentID != "" {
-		p, err = s.paymentRepo.FindByIntent(intentID)
-	}
-
-	if err != nil || p == nil {
-		return nil
-	}
-
-	return s.repo.LinkPayment(bookingID, p.ID)
 }

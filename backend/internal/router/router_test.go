@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -34,5 +36,19 @@ func TestRegisterAllHasNoDuplicateRoutes(t *testing.T) {
 		if _, exists := seen[required]; !exists {
 			t.Errorf("required route is missing: %s", required)
 		}
+	}
+}
+
+func TestPaymentCreationRequiresAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	cfg := &config.Config{JWTSecret: "test-secret"}
+	New(engine, cfg, nil, nil).RegisterAll()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/payments/create-intent", nil)
+	res := httptest.NewRecorder()
+	engine.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("got status %d, want %d", res.Code, http.StatusUnauthorized)
 	}
 }

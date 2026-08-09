@@ -15,13 +15,13 @@ type Service struct {
 type RepositoryInterface interface {
 	CreateSchedule(schedule *models.AvailabilitySchedule) error
 	GetSchedulesByProvider(providerID string) ([]models.AvailabilitySchedule, error)
-	UpdateSchedule(id string, schedule *models.AvailabilitySchedule) error
-	DeleteSchedule(id string) error
+	UpdateSchedule(id, providerID string, schedule *models.AvailabilitySchedule) error
+	DeleteSchedule(id, providerID string) error
 	CreateException(exception *models.AvailabilityException) error
 	GetExceptionsByProviderAndDateRange(providerID string, startDate, endDate time.Time) ([]models.AvailabilityException, error)
-	UpdateException(id string, exception *models.AvailabilityException) error
-	DeleteException(id string) error
-	GetAvailableSlots(providerID string, date time.Time) ([]TimeSlot, error)
+	UpdateException(id, providerID string, exception *models.AvailabilityException) error
+	DeleteException(id, providerID string) error
+	GetAvailableSlots(providerID string, date time.Time, durationMinutes int) ([]TimeSlot, error)
 }
 
 func NewService(repo RepositoryInterface) *Service {
@@ -51,7 +51,7 @@ func (s *Service) GetSchedulesByProvider(providerID string) ([]models.Availabili
 	return s.repo.GetSchedulesByProvider(providerID)
 }
 
-func (s *Service) UpdateSchedule(id string, schedule *models.AvailabilitySchedule) error {
+func (s *Service) UpdateSchedule(id, providerID string, schedule *models.AvailabilitySchedule) error {
 	// Similar validation as Create
 	if schedule.DayOfWeek < 0 || schedule.DayOfWeek > 6 {
 		return errors.New("invalid day of week")
@@ -65,11 +65,11 @@ func (s *Service) UpdateSchedule(id string, schedule *models.AvailabilitySchedul
 		return errors.New("start time must be before end time")
 	}
 
-	return s.repo.UpdateSchedule(id, schedule)
+	return s.repo.UpdateSchedule(id, providerID, schedule)
 }
 
-func (s *Service) DeleteSchedule(id string) error {
-	return s.repo.DeleteSchedule(id)
+func (s *Service) DeleteSchedule(id, providerID string) error {
+	return s.repo.DeleteSchedule(id, providerID)
 }
 
 // Exception management
@@ -91,7 +91,7 @@ func (s *Service) GetExceptionsByProviderAndDateRange(providerID string, startDa
 	return s.repo.GetExceptionsByProviderAndDateRange(providerID, startDate, endDate)
 }
 
-func (s *Service) UpdateException(id string, exception *models.AvailabilityException) error {
+func (s *Service) UpdateException(id, providerID string, exception *models.AvailabilityException) error {
 	// Similar validation as Create
 	if exception.StartTime != "" && exception.EndTime != "" {
 		if !isValidTime(exception.StartTime) || !isValidTime(exception.EndTime) {
@@ -102,11 +102,11 @@ func (s *Service) UpdateException(id string, exception *models.AvailabilityExcep
 		}
 	}
 
-	return s.repo.UpdateException(id, exception)
+	return s.repo.UpdateException(id, providerID, exception)
 }
 
-func (s *Service) DeleteException(id string) error {
-	return s.repo.DeleteException(id)
+func (s *Service) DeleteException(id, providerID string) error {
+	return s.repo.DeleteException(id, providerID)
 }
 
 // Conflict detection
@@ -155,7 +155,7 @@ func (s *Service) CheckBookingConflicts(providerID string, date time.Time, start
 	available := false
 	for _, schedule := range schedules {
 		if schedule.DayOfWeek == dayOfWeek && schedule.IsAvailable {
-			if timesOverlap(startTime, endTime, schedule.StartTime, schedule.EndTime) {
+			if timeRangeWithin(startTime, endTime, schedule.StartTime, schedule.EndTime) {
 				available = true
 				break
 			}
@@ -188,4 +188,11 @@ func timesOverlap(start1, end1, start2, end2 string) bool {
 	}
 
 	return start1 < end2 && start2 < end1
+}
+
+func timeRangeWithin(start, end, windowStart, windowEnd string) bool {
+	if windowStart == "" || windowEnd == "" {
+		return false
+	}
+	return windowStart <= start && end <= windowEnd
 }

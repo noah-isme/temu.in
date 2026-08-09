@@ -4,13 +4,12 @@ Platform pemesanan janji temu dengan SPA React/TypeScript dan API Go/Gin. Postgr
 
 ## Status implementasi
 
-Fondasi aplikasi dan alur inti tersedia: authentication, provider/service CRUD, jadwal availability, booking, favorites, reviews, admin user management, serta payment intent internal. Stack Docker, migrasi PostgreSQL, lint, unit test, dan production build sudah dapat dijalankan.
+Fondasi aplikasi dan alur inti tersedia: authentication, provider/service CRUD, jadwal availability, booking, favorites, reviews, admin user management, Midtrans payment intent, serta durable email notifications. Stack Docker, migrasi PostgreSQL, lint, unit test, dan production build sudah dapat dijalankan.
 
 Bagian berikut masih dalam pengembangan dan belum production-ready:
 
-- Midtrans dan verifikasi webhook pembayaran;
-- SendGrid, template email, dan worker notifikasi;
 - cache slot Redis dan invalidasinya;
+- sandbox integration test dan konfigurasi kredensial/template produksi;
 - analytics admin lengkap, Swagger/OpenAPI, E2E test, metrics, dan deployment hardening.
 
 Laporan progres, bukti verifikasi, risiko, dan urutan pengembangan berikutnya tersedia di [docs/progress-report.md](docs/progress-report.md). Spesifikasi awal tetap tersedia di [docs/AGENT.md](docs/AGENT.md), sedangkan status sprint berada di [docs/project-checklist-and-sprints.md](docs/project-checklist-and-sprints.md).
@@ -50,6 +49,35 @@ Endpoint lokal:
 - readiness: <http://localhost/api/health/ready>
 
 Seluruh API aplikasi menggunakan prefix `/api`, bukan `/api/v1`.
+
+## Kontrak booking, payment, dan otorisasi
+
+`POST /api/bookings` memerlukan JWT dan body berikut:
+
+```json
+{
+  "providerId": "provider-uuid",
+  "serviceId": "service-uuid",
+  "customerName": "Nama pelanggan",
+  "slot": {
+    "date": "2026-08-10",
+    "start_time": "10:00",
+    "end_time": "10:45"
+  }
+}
+```
+
+Backend memvalidasi bahwa service aktif dan dimiliki provider yang dipilih, memastikan durasi slot sama dengan durasi service, lalu mengambil harga dan currency dari katalog server. Klien tidak dapat menetapkan harga sendiri. Endpoint availability publik juga memerlukan `serviceId` agar slot dihitung memakai durasi service, bukan interval tetap 30 menit.
+
+`POST /api/payments/create-intent` dan `/api/payments/confirm` hanya dapat dipanggil user terautentikasi. Keduanya menggunakan provider Midtrans melalui interface provider; `POST /api/payments/webhook` adalah endpoint publik yang memverifikasi signature SHA-512, mencocokkan nominal, mengabaikan transisi status yang mundur, dan mencatat digest webhook untuk idempotency. Booking baru menjadi confirmed setelah payment succeeded, dan `payment_status` diperbarui bersama status booking.
+
+Customer hanya dapat melihat atau membatalkan booking miliknya. Provider atau admin diperlukan untuk mengelola provider, service, schedule, exception, statistik, serta confirm/complete booking; semua tindakan provider di-scope dengan provider ID.
+
+## Konfigurasi integrasi eksternal
+
+Salin `backend/.env.example` lalu isi `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY`, dan `MIDTRANS_BASE_URL` (sandbox secara default). Daftarkan `POST /api/payments/webhook` pada dashboard Midtrans.
+
+Notifikasi penting masuk ke tabel `notifications` melalui outbox setelah transaksi bisnis, lalu diproses worker dengan SendGrid. Isi `SENDGRID_API_KEY` dan `SENDGRID_FROM_EMAIL`; template ID bersifat opsional (`SENDGRID_BOOKING_TEMPLATE_ID`, `SENDGRID_CANCELLATION_TEMPLATE_ID`, `SENDGRID_REMINDER_TEMPLATE_ID`, `SENDGRID_RECEIPT_TEMPLATE_ID`, dan `SENDGRID_AUTH_TEMPLATE_ID`). Kegagalan akan dicoba ulang dengan backoff, dipindahkan ke `dead_letter` setelah batas percobaan, dan dicatat di `notification_deliveries`.
 
 ## Pengembangan lokal
 

@@ -120,12 +120,16 @@ func (h *Handlers) Create(c *gin.Context) {
 }
 
 func (h *Handlers) Update(c *gin.Context) {
-	claims, ok := h.getUserClaims(c)
+	id := c.Param("providerId")
+	if !auth.RequireProviderAccess(c, id, h.service) {
+		return
+	}
+	claims, ok := auth.ClaimsFromContext(c)
 	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
 		return
 	}
 
-	id := c.Param("providerId")
 	var req UpdateProviderRequest
 	if !validator.BindAndValidate(c, &req) {
 		return
@@ -149,12 +153,16 @@ func (h *Handlers) Update(c *gin.Context) {
 }
 
 func (h *Handlers) Delete(c *gin.Context) {
-	claims, ok := h.getUserClaims(c)
+	id := c.Param("providerId")
+	if !auth.RequireProviderAccess(c, id, h.service) {
+		return
+	}
+	claims, ok := auth.ClaimsFromContext(c)
 	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
 		return
 	}
 
-	id := c.Param("providerId")
 	err := h.service.DeleteProvider(id, claims.UserID, claims.Role == "admin")
 	if err != nil {
 		if err.Error() == "unauthorized: provider does not belong to user" {

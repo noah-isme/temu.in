@@ -79,6 +79,9 @@ func (s *Server) Run() error {
 
 	r := router.New(s.router, s.cfg, s.db, s.cache)
 	r.RegisterAll()
+	workerContext, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	r.StartBackgroundWorkers(workerContext)
 
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	return s.router.Run(addr)

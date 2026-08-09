@@ -35,20 +35,7 @@ func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
 }
 
 func (h *Handlers) checkProviderOwnership(c *gin.Context, providerID string) bool {
-	claims, ok := h.getUserClaims(c)
-	if !ok {
-		return false
-	}
-	providerRecord, err := h.providerService.GetProvider(providerID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-		return false
-	}
-	if claims.Role != "admin" && providerRecord.UserID != claims.UserID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
-		return false
-	}
-	return true
+	return auth.RequireProviderAccess(c, providerID, h.providerService)
 }
 
 func (h *Handlers) getUserClaims(c *gin.Context) (*auth.Claims, bool) {

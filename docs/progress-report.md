@@ -1,20 +1,21 @@
 # Laporan Progres Temu.in
 
-Tanggal pembaruan: 13 Juli 2026
+Tanggal pembaruan: 9 Agustus 2026
 
-Baseline terverifikasi: commit `205b40d75d1d20baa0afd1973e15476ec8c5c18e`
+Baseline historis laporan: commit `205b40d75d1d20baa0afd1973e15476ec8c5c18e`.
+Verifikasi terbaru pada tanggal di atas mencakup perubahan payment, booking, authorization, availability, dan notification yang akan dicatat dalam commit berikutnya.
 
 ## Ringkasan eksekutif
 
-Temu.in sudah melewati tahap scaffold dan kini dapat dijalankan sebagai stack end-to-end untuk pengembangan. Fondasi MVP—authentication, katalog provider/service, jadwal, booking, frontend dasar, database, cache service, container, dan reverse proxy—sudah tersedia. Sistem belum production-ready karena payment dan email masih berupa implementasi internal, coverage backend masih terbatas, dan operasional produksi belum lengkap.
+Temu.in sudah melewati tahap scaffold dan kini dapat dijalankan sebagai stack end-to-end untuk pengembangan. Fondasi MVP—authentication, katalog provider/service, jadwal, booking, frontend dasar, database, cache service, container, dan reverse proxy—sudah tersedia. Payment sekarang menggunakan Midtrans melalui provider interface dengan webhook bertanda tangan, sedangkan email penting menggunakan durable outbox dan worker SendGrid. Sistem masih memerlukan kredensial/integration test sandbox, coverage yang lebih luas, observability, dan runbook produksi.
 
 Estimasi kesiapan berdasarkan scope spesifikasi awal:
 
 | Sasaran | Estimasi | Keterangan |
 |---|---:|---|
-| Fondasi MVP pengembangan | 70% | Stack berjalan, alur inti tersedia, QA dasar aktif |
-| Spesifikasi produk penuh | 50% | Payment, notification worker, dashboard lengkap, dan E2E belum selesai |
-| Kesiapan produksi | 30% | Security audit, observability, deployment, backup, dan runbook belum lengkap |
+| Fondasi MVP pengembangan | 80% | Stack berjalan, alur inti, payment gateway, dan outbox notifikasi tersedia |
+| Spesifikasi produk penuh | 65% | Dashboard, cache, OpenAPI, dan E2E masih belum selesai |
+| Kesiapan produksi | 45% | Kredensial produksi, observability, deployment, backup, dan runbook belum lengkap |
 
 Persentase adalah estimasi engineering berdasarkan fitur dan risiko, bukan hasil coverage otomatis.
 
@@ -35,13 +36,15 @@ Persentase adalah estimasi engineering berdasarkan fitur dan risiko, bukan hasil
 
 - [x] Register, login, refresh rotation, logout, forgot/reset password, dan email verification flow.
 - [x] Provider dan service listing/search/CRUD dengan ownership check serta admin override.
-- [x] Availability schedule dan exception CRUD.
-- [x] Kalkulasi slot 30 menit dengan exception parsial dan full-day.
+- [x] Availability schedule dan exception CRUD dengan policy provider/admin serta query update/delete yang ter-scope provider.
+- [x] Kalkulasi slot berdasarkan durasi service dengan exception parsial dan full-day.
 - [x] Booking create/list/detail/cancel/confirm/complete/reschedule.
-- [x] Favorites, reviews, payment intent internal, admin promote/audit, rate limit, dan health endpoint.
+- [x] Booking mewajibkan service aktif milik provider, mengambil durasi/harga dari server, dan memakai kontrak `slot` bertipe `{date,start_time,end_time}`.
+- [x] Authorization policy terpusat untuk provider/admin, termasuk ownership booking dan cross-tenant tests.
+- [x] Payment provider interface Midtrans, order ID acak, amount server-side, authenticated intent/confirm, signed webhook, state transition, dan webhook idempotency.
+- [x] Favorites, reviews, admin promote/audit, rate limit, dan health endpoint.
 - [ ] Redis cache dan invalidasi slot.
-- [ ] Midtrans Snap/webhook nyata.
-- [ ] SendGrid dan worker notifikasi asynchronous.
+- [x] SendGrid provider, notification outbox, retry/dead-letter worker, delivery audit, booking/provider notifications, reminders, dan payment receipt.
 - [ ] Swagger/OpenAPI.
 
 ### Frontend
@@ -58,8 +61,9 @@ Persentase adalah estimasi engineering berdasarkan fitur dan risiko, bukan hasil
 ### QA dan dokumentasi
 
 - [x] `go vet ./...` berhasil.
-- [x] `go test -race ./...` berhasil.
-- [x] Unit/regression test availability, provider authorization, dan registrasi route tersedia.
+- [x] `go test ./...` berhasil.
+- [x] Unit/regression test availability, payment provider/webhook, notification provider/templates/worker, provider authorization, dan registrasi route tersedia.
+- [x] Authorization tests untuk customer, provider owner, admin, dan akses cross-tenant.
 - [x] Frontend lint berhasil.
 - [x] Frontend 4 file test/5 test berhasil.
 - [x] Frontend production build berhasil.
@@ -72,9 +76,8 @@ Persentase adalah estimasi engineering berdasarkan fitur dan risiko, bukan hasil
 
 | Prioritas | Risiko | Dampak |
 |---|---|---|
-| P0 | Payment masih intent/confirm internal tanpa Midtrans dan signature webhook | Tidak boleh digunakan untuk transaksi nyata |
-| P0 | Email memakai console provider tanpa durable queue | Notifikasi tidak terkirim dan hilang saat proses gagal |
-| P1 | Coverage backend masih berfokus pada tiga area | Regression business logic belum tertangkap luas |
+| P1 | Payment/SendGrid belum memiliki integration test sandbox dan tetap membutuhkan konfigurasi kredensial produksi | Integrasi eksternal belum terbukti end-to-end pada environment produksi |
+| P1 | Coverage backend masih berfokus pada beberapa area | Regression business logic belum tertangkap luas |
 | P1 | Dependency frontend memiliki 23 advisory pada audit terakhir | Perlu triase exploitability dan upgrade terkontrol |
 | P1 | Readiness endpoint belum mewakili seluruh dependency secara mendalam | Orchestrator dapat menganggap instance siap terlalu cepat |
 | P2 | Slot belum dicache dan belum memiliki invalidation strategy | Beban database meningkat saat traffic booking bertambah |
@@ -82,28 +85,27 @@ Persentase adalah estimasi engineering berdasarkan fitur dan risiko, bukan hasil
 
 ## Rekomendasi pengembangan berikutnya
 
-### 1. Payment production path — P0
+### 1. Payment production path — selesai untuk jalur aplikasi
 
-1. Integrasikan Midtrans Snap melalui interface provider agar sandbox dan mock dapat dipertukarkan.
-2. Simpan order ID unik dan tambahkan idempotency key pada create payment.
-3. Verifikasi signature webhook, petakan seluruh status transaksi, dan simpan audit callback.
-4. Tambahkan integration test untuk success, pending, expired, deny, refund, duplicate callback, dan invalid signature.
-5. Hubungkan frontend ke hosted Snap flow; jangan pernah menyimpan data kartu.
+1. Midtrans Snap diisolasi melalui provider interface; order ID dibuat memakai random bytes.
+2. Amount dan currency ditentukan dari service aktif di server, bukan dari payload klien.
+3. Intent dan confirm memerlukan JWT; webhook memverifikasi signature SHA-512, nominal, state transition, dan digest idempotency.
+4. Payment dan booking memiliki state machine; status payment sukses memperbarui `booking.status` dan `booking.payment_status` secara konsisten.
 
-Kriteria selesai: callback terverifikasi, idempotent, dapat direplay dengan aman, dan booking/payment tetap konsisten.
+Pekerjaan lanjutan: integration test sandbox untuk success, pending, expired, deny, refund, duplicate callback, dan invalid signature; jangan pernah menyimpan data kartu.
 
-### 2. Notification delivery — P0
+### 2. Notification delivery — selesai untuk outbox dan worker
 
-1. Implementasikan SendGrid provider di belakang interface yang sudah tersedia.
-2. Buat tabel/outbox job dan worker dengan retry exponential serta dead-letter state.
-3. Tambahkan template verification, reset password, booking confirmation/cancellation/reminder, dan receipt.
-4. Hindari goroutine fire-and-forget untuk event penting.
+1. SendGrid provider menerima dynamic template ID atau rendered HTML/text fallback.
+2. Tabel `notifications` menjadi durable outbox dengan deduplication key, status processing/retry/sent/dead-letter, dan claim berbasis `FOR UPDATE SKIP LOCKED`.
+3. Worker memakai exponential backoff, memulihkan claim yang stale, dan mencatat setiap attempt pada `notification_deliveries`.
+4. Event booking confirmation/cancellation, reminder customer/provider, payment receipt, email verification, dan password reset masuk ke outbox tanpa goroutine fire-and-forget.
 
-Kriteria selesai: event persisten, retry terukur, kegagalan dapat diaudit, dan provider dapat dimock pada test.
+Pekerjaan lanjutan: verifikasi template SendGrid di staging, alert untuk dead-letter, dan integration test provider.
 
 ### 3. QA dan keamanan — P1
 
-1. Tambahkan test auth, booking transaction/conflict, payment callback, refresh rotation, dan authorization per role.
+1. Tambahkan integration test auth, booking transaction/conflict, payment callback, refresh rotation, dan authorization per role.
 2. Tambahkan E2E auth → provider → slot → booking → payment sandbox.
 3. Ukur coverage dan capai minimal 60% pada package kritis.
 4. Triase `npm audit`; upgrade dependency per kelompok dan jalankan regression suite setelah setiap kelompok.
@@ -126,8 +128,8 @@ Kriteria selesai: event persisten, retry terukur, kegagalan dapat diaudit, dan p
 
 | Sprint | Fokus | Exit criteria |
 |---|---|---|
-| 1 | Midtrans, idempotency, webhook security | Payment sandbox end-to-end dan integration test lulus |
-| 2 | SendGrid, outbox worker, template | Notifikasi durable dengan retry dan audit |
+| 1 | Midtrans, idempotency, webhook security | Implementasi aplikasi selesai; sandbox integration test masih tersisa |
+| 2 | SendGrid, outbox worker, template | Outbox, retry, dead-letter, reminder, receipt, dan audit tersedia |
 | 3 | Coverage, E2E, OpenAPI, dependency remediation | Coverage kritis ≥60%, contract/E2E hijau |
 | 4 | Observability, readiness, deployment/runbook | Staging dapat dipantau, di-rollback, dan direstore |
 | 5 | Cache dan penyelesaian dashboard/UI | Target performa serta alur pengguna utama tercapai |

@@ -39,33 +39,37 @@ export const handlers = [
   // POST /bookings - create a booking (mock)
   rest.post('/bookings', async (req, res, ctx) => {
     const body = await req.json();
-    // Create a simple mock booking id and echo data
     const booking = {
-      id: `b_${Date.now()}`,
+      id: 1,
       providerId: body.providerId,
+      serviceId: body.serviceId,
       customerName: body.customerName || 'Guest',
-      slot: body.slot || null,
-      status: 'confirmed'
+      slot: body.slot,
+      status: 'confirmed',
+      payment_status: 'paid'
     };
-    return res(ctx.status(201), ctx.json(booking));
+    return res(ctx.status(201), ctx.json({ booking, payment: { id: 1, order_id: 'mock-order', client_secret: 'mock-client-secret', amount: 75000, currency: 'IDR', status: 'created' } }));
   })
   ,
   rest.post('/api/bookings', async (req, res, ctx) => {
     const body = await req.json();
     const booking = {
-      id: `b_${Date.now()}`,
+      id: 1,
       providerId: body.providerId,
+      serviceId: body.serviceId,
       customerName: body.customerName || 'Guest',
-      slot: body.slot || null,
-      status: 'confirmed'
+      slot: body.slot,
+      status: 'pending',
+      payment_status: 'pending'
     };
     return res(ctx.status(201), ctx.json({
       booking,
       payment: {
         id: 1,
-        client_secret: `cs_${Date.now()}`,
-        amount: body.amount || 0,
-        currency: body.currency || 'IDR',
+        order_id: 'mock-order',
+        client_secret: 'mock-client-secret',
+        amount: body.serviceId === 's2' ? 75000 : 15000,
+        currency: 'IDR',
         status: 'created'
       }
     }));
@@ -96,28 +100,24 @@ export const handlers = [
   rest.get('/availability', (req, res, ctx) => {
     const providerId = req.url.searchParams.get('providerId');
     const dateParam = req.url.searchParams.get('date');
-    // parse date or default to today
-    const base = dateParam ? new Date(dateParam) : new Date();
-    const y = base.getFullYear();
-    const m = base.getMonth();
-    const d = base.getDate();
-    // create slots at 09:00, 10:00, 14:00 for the requested date
-    const slots = [9, 10, 14].map((hour) => new Date(y, m, d, hour, 0).toISOString());
+    const serviceId = req.url.searchParams.get('serviceId');
+    const date = dateParam || new Date().toISOString().slice(0, 10);
+    const duration = serviceId === 's2' ? 60 : 30;
+    const slots = [9, 10, 14].map((hour) => ({ date, start_time: `${String(hour).padStart(2, '0')}:00`, end_time: `${String(hour + duration / 60).padStart(2, '0')}:00` }));
     // simulate variable latency between 300-900ms
     const latency = Math.floor(300 + Math.random() * 600);
-    return res(ctx.delay(latency), ctx.status(200), ctx.json({ providerId, date: base.toISOString().slice(0, 10), slots }));
+    return res(ctx.delay(latency), ctx.status(200), ctx.json({ providerId, date, serviceId, slots }));
   })
   ,
   rest.get('/api/availability', (req, res, ctx) => {
     const providerId = req.url.searchParams.get('providerId');
     const dateParam = req.url.searchParams.get('date');
-    const base = dateParam ? new Date(dateParam) : new Date();
-    const y = base.getFullYear();
-    const m = base.getMonth();
-    const d = base.getDate();
-    const slots = [9, 10, 14].map((hour) => new Date(y, m, d, hour, 0).toISOString());
+    const serviceId = req.url.searchParams.get('serviceId');
+    const date = dateParam || new Date().toISOString().slice(0, 10);
+    const duration = serviceId === 's2' ? 60 : 30;
+    const slots = [9, 10, 14].map((hour) => ({ date, start_time: `${String(hour).padStart(2, '0')}:00`, end_time: `${String(hour + duration / 60).padStart(2, '0')}:00` }));
     const latency = Math.floor(300 + Math.random() * 600);
-    return res(ctx.delay(latency), ctx.status(200), ctx.json({ providerId, date: base.toISOString().slice(0, 10), slots }));
+    return res(ctx.delay(latency), ctx.status(200), ctx.json({ providerId, date, serviceId, slots }));
   })
   ,
   // POST /auth/login

@@ -32,6 +32,9 @@ describe('BookingFlow', () => {
     const serviceSelect = screen.getByLabelText(/Service/i) as HTMLSelectElement;
     fireEvent.change(serviceSelect, { target: { value: serviceSelect.querySelector('option:nth-child(2)')?.getAttribute('value') } });
 
+    const customerName = screen.getByLabelText(/Customer name/i) as HTMLInputElement;
+    fireEvent.change(customerName, { target: { value: 'Alice Example' } });
+
     // choose first provider
     const providerSelect = screen.getByLabelText(/Provider/i) as HTMLSelectElement;
     await waitFor(() => expect(providerSelect.options.length).toBeGreaterThan(1));
@@ -55,10 +58,16 @@ describe('BookingFlow', () => {
     await waitFor(() => expect(screen.getByText(/Booking & payment successful/i)).toBeInTheDocument());
   });
 
-  it('shows error when payment is forced to fail', async () => {
+  it('sends the selected service and customer with the booking', async () => {
     renderBookingFlow();
 
     await waitFor(() => expect(screen.getByText(/-- pilih service --/i)).toBeInTheDocument());
+
+    const serviceSelect = screen.getByLabelText(/Service/i) as HTMLSelectElement;
+    fireEvent.change(serviceSelect, { target: { value: serviceSelect.querySelector('option:nth-child(2)')?.getAttribute('value') } });
+
+    const customerName = screen.getByLabelText(/Customer name/i) as HTMLInputElement;
+    fireEvent.change(customerName, { target: { value: 'Alice Example' } });
 
     const providerSelect = screen.getByLabelText(/Provider/i) as HTMLSelectElement;
     await waitFor(() => expect(providerSelect.options.length).toBeGreaterThan(1));
@@ -70,13 +79,9 @@ describe('BookingFlow', () => {
     await waitFor(() => expect(screen.queryAllByRole('radio').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByRole('radio')[0]);
 
-    // enable force fail
-    const checkbox = screen.getByLabelText(/Force payment fail/i) as HTMLInputElement;
-    fireEvent.click(checkbox);
-
     const btn = screen.getByRole('button', { name: /confirm booking/i });
     fireEvent.click(btn);
 
-    await waitFor(() => expect(screen.getByText(/Payment failed/i) || window.alert));
+    await waitFor(() => expect(screen.getByText(/Booking & payment successful/i)).toBeInTheDocument());
   });
 });

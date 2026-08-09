@@ -6,6 +6,20 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	BookingStatusPending       = "pending"
+	BookingStatusConfirmed     = "confirmed"
+	BookingStatusCompleted     = "completed"
+	BookingStatusCancelled     = "cancelled"
+	BookingStatusPaymentFailed = "payment_failed"
+
+	BookingPaymentUnpaid      = "unpaid"
+	BookingPaymentPending     = "pending"
+	BookingPaymentPaid        = "paid"
+	BookingPaymentFailed      = "failed"
+	BookingPaymentNotRequired = "not_required"
+)
+
 type Booking struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -31,6 +45,24 @@ type Booking struct {
 
 	PaymentStatus string `gorm:"type:varchar(20);default:'unpaid'" json:"payment_status"`
 	PaymentID     *uint  `json:"payment_id,omitempty"`
+}
+
+func CanTransitionBookingStatus(from, to string) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case BookingStatusPending:
+		return to == BookingStatusConfirmed || to == BookingStatusCancelled || to == BookingStatusPaymentFailed
+	case BookingStatusConfirmed:
+		return to == BookingStatusCompleted || to == BookingStatusCancelled
+	case BookingStatusPaymentFailed:
+		return to == BookingStatusCancelled
+	case BookingStatusCompleted, BookingStatusCancelled:
+		return false
+	default:
+		return false
+	}
 }
 
 type ProviderStats struct {

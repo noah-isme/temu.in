@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"time"
 
 	"temu.in/backend/internal/models"
 )
@@ -14,6 +15,10 @@ type Service interface {
 	SendEmailVerification(ctx context.Context, user *models.User, token string) error
 }
 
-type EmailProvider interface {
-	SendEmail(to []string, subject string, body string) error
+type PaymentReceiptService interface {
+	SendPaymentReceipt(ctx context.Context, booking *models.Booking, user *models.User, payment *models.Payment) error
+}
+
+type ReminderScheduler interface {
+	EnqueueUpcomingReminders(ctx context.Context, now time.Time) error
 }

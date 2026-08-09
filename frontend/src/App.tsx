@@ -10,7 +10,6 @@ import ServicesPage from './pages/ServicesPage';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import RequireAuth from './components/RequireAuth';
-import { FEATURES, Feature } from './shared/features';
 
 function AppNavLink({ to, label }: { to: string; label: string }) {
   return (
@@ -98,18 +97,6 @@ export default function App(): JSX.Element {
               <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
               <Route path="/login" element={<LoginPage />} />
             </Routes>
-
-            <section className="mt-12 grid gap-6 sm:grid-cols-2">
-              {FEATURES.map((feature: Feature) => (
-                <article key={feature.title} className="rounded-xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <feature.icon className="h-6 w-6" aria-hidden />
-                  </div>
-                  <h3 className="mb-2 text-lg font-semibold text-card-foreground">{feature.title}</h3>
-                  <p className="text-sm text-muted-foreground">{feature.description}</p>
-                </article>
-              ))}
-            </section>
           </div>
         </PageTransition>
       </main>

@@ -1,15 +1,16 @@
 package booking
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"temu.in/backend/internal/auth"
-	"temu.in/backend/internal/payment"
+	"temu.in/backend/internal/availability"
+	paymentpkg "temu.in/backend/internal/payment"
 	"temu.in/backend/internal/validator"
 )
 
@@ -18,16 +19,23 @@ type Handlers struct {
 	providerService ProviderService
 }
 
-func NewHandlers(repo *Repository, paymentRepo *payment.Repository, userRepo UserRepo, providerSvc ProviderService) *Handlers {
+func NewHandlers(repo *Repository, paymentRepo *paymentpkg.Repository, userRepo UserRepo, providerSvc ProviderService) *Handlers {
 	return &Handlers{
 		service:         NewService(repo, paymentRepo, userRepo, providerSvc),
 		providerService: providerSvc,
 	}
 }
 
-func NewHandlersWithAvailability(repo *Repository, paymentRepo *payment.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService) *Handlers {
+func NewHandlersWithAvailability(repo *Repository, paymentRepo *paymentpkg.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService) *Handlers {
 	return &Handlers{
 		service:         NewServiceWithDeps(repo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc),
+		providerService: providerSvc,
+	}
+}
+
+func NewHandlersWithDependencies(repo *Repository, paymentRepo *paymentpkg.Repository, availabilitySvc AvailabilityService, notificationSvc NotificationService, userRepo UserRepo, providerSvc ProviderService, serviceCatalog ServiceCatalog, paymentCreator PaymentCreator) *Handlers {
+	return &Handlers{
+		service:         NewServiceWithFullDeps(repo, paymentRepo, availabilitySvc, notificationSvc, userRepo, providerSvc, serviceCatalog, paymentCreator),
 		providerService: providerSvc,
 	}
 }
@@ -52,23 +60,9 @@ func (h *Handlers) Register(rg *gin.RouterGroup) {
 }
 
 func (h *Handlers) GetProviderStats(c *gin.Context) {
-	claims, ok := h.getUserClaims(c)
-	if !ok {
-		return
-	}
-
 	providerID := c.Param("providerId")
-
-	if h.providerService != nil {
-		p, err := h.providerService.GetProvider(providerID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
-		}
-		if p.UserID != claims.UserID && claims.Role != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
-			return
-		}
+	if !auth.RequireProviderAccess(c, providerID, h.providerService) {
+		return
 	}
 
 	stats, err := h.service.GetProviderStats(c.Request.Context(), providerID)
@@ -122,14 +116,29 @@ func (h *Handlers) List(c *gin.Context) {
 }
 
 type createBookingRequest struct {
-	ProviderID   string  `json:"providerId" binding:"required"`
-	ServiceID    *string `json:"serviceId"`
-	CustomerName string  `json:"customerName"`
-	Slot         string  `json:"slot" binding:"required"`
-	Amount       int64   `json:"amount" binding:"gte=0"`
-	Currency     string  `json:"currency"`
-	ClientSecret string  `json:"client_secret"`
-	IntentID     string  `json:"intent_id"`
+	ProviderID   string                `json:"providerId" binding:"required"`
+	ServiceID    string                `json:"serviceId" binding:"required"`
+	CustomerName string                `json:"customerName" binding:"required,max=255"`
+	Slot         availability.TimeSlot `json:"slot" binding:"required"`
+}
+
+func parseTimeSlot(slot availability.TimeSlot) (time.Time, time.Time, time.Time, error) {
+	if slot.Date == "" || slot.StartTime == "" || slot.EndTime == "" {
+		return time.Time{}, time.Time{}, time.Time{}, errors.New("slot date and time are required")
+	}
+	date, err := time.Parse("2006-01-02", slot.Date)
+	if err != nil {
+		return time.Time{}, time.Time{}, time.Time{}, errors.New("invalid slot date")
+	}
+	start, err := time.Parse("15:04", slot.StartTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, time.Time{}, errors.New("invalid slot start time")
+	}
+	end, err := time.Parse("15:04", slot.EndTime)
+	if err != nil || !start.Before(end) {
+		return time.Time{}, time.Time{}, time.Time{}, errors.New("invalid slot end time")
+	}
+	return date, start, end, nil
 }
 
 func (h *Handlers) Create(c *gin.Context) {
@@ -143,48 +152,21 @@ func (h *Handlers) Create(c *gin.Context) {
 		return
 	}
 
-	// Parse slot: expected format "YYYY-MM-DD HH:MM-HH:MM"
-	parts := strings.Split(req.Slot, " ")
-	if len(parts) != 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slot format"})
-		return
-	}
-	dateStr := parts[0]
-	timeRange := strings.Split(parts[1], "-")
-	if len(timeRange) != 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slot format"})
-		return
-	}
-	startTimeStr := timeRange[0]
-	endTimeStr := timeRange[1]
-
-	bookingDate, err := time.Parse("2006-01-02", dateStr)
+	bookingDate, startTime, endTime, err := parseTimeSlot(req.Slot)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
-		return
-	}
-	startTime, err := time.Parse("15:04", startTimeStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start time format"})
-		return
-	}
-	endTime, err := time.Parse("15:04", endTimeStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end time format"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	input := CreateBookingInput{
 		UserID:       claims.UserID,
 		ProviderID:   req.ProviderID,
-		ServiceID:    req.ServiceID,
+		ServiceID:    &req.ServiceID,
 		CustomerName: req.CustomerName,
 		BookingDate:  bookingDate,
 		StartTime:    startTime,
 		EndTime:      endTime,
 		Notes:        "", // TODO: add notes field
-		Amount:       req.Amount,
-		Currency:     req.Currency,
 	}
 
 	booking, payment, err := h.service.CreateBooking(c.Request.Context(), input)
@@ -193,16 +175,20 @@ func (h *Handlers) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, ErrServiceNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
 		if err == ErrSlotUnavailable || err == ErrBookingConflict {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, ErrPaymentUnavailable) || errors.Is(err, paymentpkg.ErrProviderNotConfigured) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "payment provider is unavailable"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create booking"})
 		return
-	}
-
-	if req.ClientSecret != "" || req.IntentID != "" {
-		_ = h.service.LinkPaymentToBooking(c.Request.Context(), booking.ID, req.ClientSecret, req.IntentID)
 	}
 
 	if payment != nil {
@@ -272,6 +258,9 @@ func (h *Handlers) Cancel(c *gin.Context) {
 }
 
 func (h *Handlers) Confirm(c *gin.Context) {
+	if !h.canManageProviderBooking(c) {
+		return
+	}
 	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
@@ -292,7 +281,7 @@ func (h *Handlers) Confirm(c *gin.Context) {
 }
 
 type rescheduleBookingRequest struct {
-	Slot string `json:"slot" binding:"required"`
+	Slot availability.TimeSlot `json:"slot" binding:"required"`
 }
 
 func (h *Handlers) Reschedule(c *gin.Context) {
@@ -313,33 +302,9 @@ func (h *Handlers) Reschedule(c *gin.Context) {
 		return
 	}
 
-	parts := strings.Split(req.Slot, " ")
-	if len(parts) != 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slot format"})
-		return
-	}
-	dateStr := parts[0]
-	timeRange := strings.Split(parts[1], "-")
-	if len(timeRange) != 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slot format"})
-		return
-	}
-	startTimeStr := timeRange[0]
-	endTimeStr := timeRange[1]
-
-	bookingDate, err := time.Parse("2006-01-02", dateStr)
+	bookingDate, startTime, endTime, err := parseTimeSlot(req.Slot)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
-		return
-	}
-	startTime, err := time.Parse("15:04", startTimeStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start time format"})
-		return
-	}
-	endTime, err := time.Parse("15:04", endTimeStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end time format"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -361,6 +326,9 @@ func (h *Handlers) Reschedule(c *gin.Context) {
 }
 
 func (h *Handlers) Complete(c *gin.Context) {
+	if !h.canManageProviderBooking(c) {
+		return
+	}
 	idStr := c.Param("bookingId")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
@@ -378,4 +346,18 @@ func (h *Handlers) Complete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "booking completed"})
+}
+
+func (h *Handlers) canManageProviderBooking(c *gin.Context) bool {
+	id, err := strconv.ParseUint(c.Param("bookingId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return false
+	}
+	booking, err := h.service.repo.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
+		return false
+	}
+	return auth.RequireProviderAccess(c, booking.ProviderID, h.providerService)
 }

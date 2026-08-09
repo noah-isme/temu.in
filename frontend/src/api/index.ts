@@ -95,17 +95,23 @@ export async function fetchProviders(): Promise<Provider[]> {
 
 export type BookingInput = {
   providerId: string;
+  serviceId: string;
   customerName: string;
-  slot?: string | null;
-  client_secret?: string;
-  intent_id?: string;
-  amount?: number;
-  currency?: string;
+  slot: TimeSlot;
+};
+
+export type TimeSlot = {
+  date: string;
+  start_time: string;
+  end_time: string;
 };
 
 export type PaymentIntent = {
   id: number;
+  order_id: string;
   client_secret: string;
+  redirect_url?: string;
+  transaction_id?: string;
   amount: number;
   currency: string;
   status: string;
@@ -143,23 +149,23 @@ export async function fetchServices(): Promise<Service[]> {
   }));
 }
 
-export async function fetchAvailability(providerId: string) {
-  const res = await api.get('/availability', { params: { providerId } });
+export async function fetchAvailability(providerId: string, serviceId: string) {
+  const res = await api.get('/availability', { params: { providerId, serviceId } });
   return res.data;
 }
 
-export async function fetchAvailabilityForDate(providerId: string, date: string) {
-  const res = await api.get('/availability', { params: { providerId, date } });
+export async function fetchAvailabilityForDate(providerId: string, date: string, serviceId: string) {
+  const res = await api.get('/availability', { params: { providerId, date, serviceId } });
   return res.data;
 }
 
-export async function createPaymentIntent(amount: number, currency = 'IDR') {
-  const res = await api.post('/payments/create-intent', { amount, currency });
+export async function createPaymentIntent(providerId: string, serviceId: string, currency = 'IDR') {
+  const res = await api.post('/payments/create-intent', { providerId, serviceId, currency });
   return res.data;
 }
 
-export async function confirmPayment(clientSecret: string) {
-  const res = await api.post('/payments/confirm', { client_secret: clientSecret });
+export async function confirmPayment(clientSecret: string, orderId?: string) {
+  const res = await api.post('/payments/confirm', { client_secret: clientSecret, order_id: orderId });
   return res.data;
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"time"
 
@@ -96,7 +97,9 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	}
 
 	if h.notificationSvc != nil {
-		go h.notificationSvc.SendPasswordReset(c.Request.Context(), u, tokenStr)
+		if err := h.notificationSvc.SendPasswordReset(c.Request.Context(), u, tokenStr); err != nil {
+			log.Printf("queue password reset notification: %v", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "If email exists, reset link sent"})
@@ -187,7 +190,9 @@ func (h *Handler) Register(c *gin.Context) {
 	if err == nil {
 		if err := h.repo.SaveVerificationToken(user.ID, verificationToken); err == nil {
 			if h.notificationSvc != nil {
-				go h.notificationSvc.SendEmailVerification(c.Request.Context(), user, verificationToken)
+				if err := h.notificationSvc.SendEmailVerification(c.Request.Context(), user, verificationToken); err != nil {
+					log.Printf("queue email verification notification: %v", err)
+				}
 			}
 		}
 	}

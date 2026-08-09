@@ -26,12 +26,31 @@ func (r *Repository) GetSchedulesByProvider(providerID string) ([]models.Availab
 	return schedules, err
 }
 
-func (r *Repository) UpdateSchedule(id string, schedule *models.AvailabilitySchedule) error {
-	return r.db.Where("id = ?", id).Updates(schedule).Error
+func (r *Repository) UpdateSchedule(id, providerID string, schedule *models.AvailabilitySchedule) error {
+	result := r.db.Model(&models.AvailabilitySchedule{}).Where("id = ? AND provider_id = ?", id, providerID).Updates(map[string]interface{}{
+		"day_of_week":  schedule.DayOfWeek,
+		"start_time":   schedule.StartTime,
+		"end_time":     schedule.EndTime,
+		"is_available": schedule.IsAvailable,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
-func (r *Repository) DeleteSchedule(id string) error {
-	return r.db.Where("id = ?", id).Delete(&models.AvailabilitySchedule{}).Error
+func (r *Repository) DeleteSchedule(id, providerID string) error {
+	result := r.db.Where("id = ? AND provider_id = ?", id, providerID).Delete(&models.AvailabilitySchedule{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) CreateException(exception *models.AvailabilityException) error {
@@ -44,16 +63,36 @@ func (r *Repository) GetExceptionsByProviderAndDateRange(providerID string, star
 	return exceptions, err
 }
 
-func (r *Repository) UpdateException(id string, exception *models.AvailabilityException) error {
-	return r.db.Where("id = ?", id).Updates(exception).Error
+func (r *Repository) UpdateException(id, providerID string, exception *models.AvailabilityException) error {
+	result := r.db.Model(&models.AvailabilityException{}).Where("id = ? AND provider_id = ?", id, providerID).Updates(map[string]interface{}{
+		"date":         exception.Date,
+		"start_time":   exception.StartTime,
+		"end_time":     exception.EndTime,
+		"is_available": exception.IsAvailable,
+		"reason":       exception.Reason,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
-func (r *Repository) DeleteException(id string) error {
-	return r.db.Where("id = ?", id).Delete(&models.AvailabilityException{}).Error
+func (r *Repository) DeleteException(id, providerID string) error {
+	result := r.db.Where("id = ? AND provider_id = ?", id, providerID).Delete(&models.AvailabilityException{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // GetAvailableSlots returns available time slots for a provider on a specific date
-func (r *Repository) GetAvailableSlots(providerID string, date time.Time) ([]TimeSlot, error) {
+func (r *Repository) GetAvailableSlots(providerID string, date time.Time, durationMinutes int) ([]TimeSlot, error) {
 	// Get schedule for the day of week
 	dayOfWeek := int(date.Weekday())
 	var schedules []models.AvailabilitySchedule
@@ -69,17 +108,18 @@ func (r *Repository) GetAvailableSlots(providerID string, date time.Time) ([]Tim
 		return nil, err
 	}
 
-	return calculateSlots(schedules, exceptions, 30), nil
+	slots := calculateSlots(schedules, exceptions, durationMinutes)
+	for i := range slots {
+		slots[i].Date = date.Format("2006-01-02")
+	}
+	return slots, nil
 }
 
-type TimeSlot struct {
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time"`
-}
+type TimeSlot = models.TimeSlot
 
 func calculateSlots(schedules []models.AvailabilitySchedule, exceptions []models.AvailabilityException, durationMinutes int) []TimeSlot {
 	if durationMinutes <= 0 {
-		durationMinutes = 30
+		return nil
 	}
 
 	windows := make([]TimeSlot, 0, len(schedules)+len(exceptions))
