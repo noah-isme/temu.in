@@ -1,11 +1,11 @@
 # Graph Report - temu.in  (2026-08-09)
 
 ## Corpus Check
-- 156 files · ~64,409 words
+- 156 files · ~64,877 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1232 nodes · 1864 edges · 110 communities (97 shown, 13 thin omitted)
+- 1234 nodes · 1866 edges · 108 communities (95 shown, 13 thin omitted)
 - Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 83 edges (avg confidence: 0.78)
 - Token cost: 0 input · 0 output
 
@@ -28,7 +28,7 @@
 - Review
 - Repository
 - payment/provider.go
-- Laporan Progres Temu.in
+- Temu.in
 - Favorite
 - What You Must Do When Invoked
 - HomePage.tsx
@@ -63,7 +63,6 @@
 - Metrics to Track
 - Repository
 - graphify reference: query, path, explain
-- Config
 - graphify reference: query, path, explain
 - 🎨 UI/UX Guidelines
 - ✅ Development Checklist
@@ -100,7 +99,6 @@
 - workflows/graphify.md
 - time_slot.go
 - .codex/skills/graphify/references/extraction-spec.md
-- New
 - notification/service.go
 - worker_test.go
 - Worker
@@ -135,7 +133,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (110 total, 13 thin omitted)
+## Communities (108 total, 13 thin omitted)
 
 ### Community 0 - "index.ts"
 Cohesion: 0.05
@@ -147,7 +145,7 @@ Nodes (7): DeletedAt, Time, Client, NewRepository(), NewRepositoryWithCache(), R
 
 ### Community 2 - "Service"
 Cohesion: 0.09
-Nodes (32): Context, Repository, RouterGroup, Service, ServiceCatalog, Time, TimeSlot, NewHandlers() (+24 more)
+Nodes (33): Context, Repository, RouterGroup, Service, ServiceCatalog, Time, TimeSlot, NewHandlers() (+25 more)
 
 ### Community 3 - "dependencies"
 Cohesion: 0.04
@@ -189,9 +187,9 @@ Nodes (9): Service, NewRepository(), Repository, NewService(), CreateServiceRequ
 Cohesion: 0.11
 Nodes (20): Client, Context, normalizeProviderStatus(), NormalizeWebhookStatus(), T, TestMidtransWebhookSignature(), TestNewOrderIDIsRandomAndUnique(), TestNormalizeWebhookStatus() (+12 more)
 
-### Community 13 - "Laporan Progres Temu.in"
+### Community 13 - "Temu.in"
 Cohesion: 0.06
-Nodes (32): 1. Payment production path — P0, 2. Notification delivery — P0, 3. QA dan keamanan — P1, 4. API contract dan operasional — P1, 5. Performance dan product completion — P2, Backend, Frontend, Infrastruktur dan database (+24 more)
+Nodes (34): 1. Payment production path — selesai untuk jalur aplikasi, 2. Notification delivery — selesai untuk outbox dan worker, 3. QA dan keamanan — P1, 4. API contract dan operasional — P1, 5. Performance dan product completion — P2, Backend, Frontend, Infrastruktur dan database (+26 more)
 
 ### Community 14 - "Favorite"
 Cohesion: 0.13
@@ -218,8 +216,8 @@ Cohesion: 0.18
 Nodes (9): Handler, promoteReq, Context, Repository, RouterGroup, NewHandler(), HandlerFunc, Middleware() (+1 more)
 
 ### Community 20 - "Booking"
-Cohesion: 0.11
-Nodes (21): Time, NewRepository(), CanTransitionBookingStatus(), DeletedAt, Time, User, addProviderData(), bookingData() (+13 more)
+Cohesion: 0.12
+Nodes (20): Time, NewRepository(), CanTransitionBookingStatus(), DeletedAt, Time, User, addProviderData(), bookingData() (+12 more)
 
 ### Community 21 - "Notification"
 Cohesion: 0.22
@@ -266,11 +264,11 @@ Cohesion: 0.11
 Nodes (19): 📖 API Documentation Template, 🔐 Authentication & Authorization Flow, Authorization Rules, Backend Optimization, 🔄 CI/CD Pipeline, 🗄️ Database Schema, ✨ Final Notes, Frontend Optimization (+11 more)
 
 ### Community 51 - "Router"
-Cohesion: 0.22
-Nodes (4): NewMidtransProvider(), Context, Service, Router
+Cohesion: 0.11
+Nodes (15): main(), Duration, Load(), NewMidtransProvider(), Client, Context, Engine, Service (+7 more)
 
 ### Community 52 - "DB"
-Cohesion: 0.21
+Cohesion: 0.19
 Nodes (4): main(), Connect(), SeedAdmin(), DB
 
 ### Community 53 - "Handlers"
@@ -317,10 +315,6 @@ Nodes (3): AdminAudit, Repository, NewRepository()
 Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
 
-### Community 64 - "Config"
-Cohesion: 0.40
-Nodes (4): main(), Duration, Load(), Config
-
 ### Community 65 - "graphify reference: query, path, explain"
 Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
@@ -338,7 +332,7 @@ Cohesion: 0.33
 Nodes (5): Container, Frontend Temu.in, Menjalankan frontend, QA, Route aplikasi
 
 ### Community 69 - "Payment"
-Cohesion: 0.18
+Cohesion: 0.19
 Nodes (7): CanTransitionPaymentStatus(), DeletedAt, Time, NewRepository(), Payment, PaymentWebhookEvent, Repository
 
 ### Community 70 - "🎓 Learning Resources"
@@ -425,10 +419,6 @@ Nodes (3): Breakpoints (Tailwind), 📱 Mobile Responsiveness, Responsive Design
 Cohesion: 0.67
 Nodes (3): Implementation Flow, 💳 Payment Integration (Midtrans), Setup Steps
 
-### Community 102 - "New"
-Cohesion: 0.31
-Nodes (7): Client, Engine, New(), sendGridTemplateIDs(), T, TestPaymentCreationRequiresAuthentication(), TestRegisterAllHasNoDuplicateRoutes()
-
 ### Community 103 - "notification/service.go"
 Cohesion: 0.50
 Nodes (3): Service, PaymentReceiptService, ReminderScheduler
@@ -438,12 +428,12 @@ Cohesion: 0.21
 Nodes (8): Context, T, Time, TestWorkerDeadLettersAfterMaximumAttempts(), TestWorkerMarksSuccessfulDelivery(), failingEmailSender, fakeOutboxRepository, successfulEmailSender
 
 ### Community 106 - "Worker"
-Cohesion: 0.33
-Nodes (7): Context, Duration, Time, NewWorker(), OutboxRepository, Worker, WorkerConfig
+Cohesion: 0.31
+Nodes (8): Context, Duration, Time, NewWorker(), EmailSender, OutboxRepository, Worker, WorkerConfig
 
 ### Community 107 - "NewSendGridProvider"
-Cohesion: 0.32
-Nodes (6): Client, Context, NewSendGridProvider(), EmailMessage, EmailSender, SendGridProvider
+Cohesion: 0.38
+Nodes (5): Client, Context, NewSendGridProvider(), EmailMessage, SendGridProvider
 
 ### Community 108 - "TestSendGridProviderSendsDynamicTemplate"
 Cohesion: 0.32
@@ -454,24 +444,24 @@ Cohesion: 0.47
 Nodes (4): RenderNotification(), T, TestRenderNotificationRejectsUnknownTemplate(), TestRenderNotificationUsesStoredPayloadAndEscapesHTML()
 
 ## Knowledge Gaps
-- **326 isolated node(s):** `temu.in/backend`, `promoteReq`, `verifyEmailReq`, `forgotPasswordReq`, `resetPasswordReq` (+321 more)
+- **328 isolated node(s):** `temu.in/backend`, `promoteReq`, `verifyEmailReq`, `forgotPasswordReq`, `resetPasswordReq` (+323 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `DB` connect `DB` to `Repository`, `Repository`, `Payment`, `ServiceProvider`, `New`, `Review`, `Repository`, `Favorite`, `Repository`, `Router`, `Booking`, `Notification`, `Server`, `Repository`?**
-  _High betweenness centrality (0.120) - this node is a cross-community bridge._
+- **Why does `DB` connect `DB` to `Repository`, `Repository`, `Payment`, `ServiceProvider`, `Review`, `Repository`, `Favorite`, `Repository`, `Router`, `Booking`, `Notification`, `Server`, `Repository`?**
+  _High betweenness centrality (0.117) - this node is a cross-community bridge._
 - **Why does `BindAndValidate()` connect `BindAndValidate` to `Service`, `Handlers`, `Handler`, `Handlers`, `Handler`?**
   _High betweenness centrality (0.062) - this node is a cross-community bridge._
 - **Why does `ServiceProvider` connect `ServiceProvider` to `Repository`, `Review`, `Favorite`, `Booking`, `DB`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+  _High betweenness centrality (0.058) - this node is a cross-community bridge._
 - **What connects `temu.in/backend`, `promoteReq`, `verifyEmailReq` to the rest of the system?**
-  _326 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _328 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `index.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.050888286660644384 - nodes in this community are weakly interconnected._
 - **Should `Service` be split into smaller, more focused modules?**
-  _Cohesion score 0.09158249158249158 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08646616541353383 - nodes in this community are weakly interconnected._
 - **Should `dependencies` be split into smaller, more focused modules?**
   _Cohesion score 0.0425531914893617 - nodes in this community are weakly interconnected._

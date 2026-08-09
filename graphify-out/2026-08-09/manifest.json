@@ -695,8 +695,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1783940287.8808784,
-    "ast_hash": "283d2aa95043965b991ad4ac7f0fa288",
+    "mtime": 1786279082.7395823,
+    "ast_hash": "fb0e5a5fcfba4790ed143c0aa86c6fa8",
     "semantic_hash": ""
   },
   "docker-compose.yml": {
@@ -705,23 +705,23 @@
     "semantic_hash": ""
   },
   "docs/AGENT.md": {
-    "mtime": 1783940288.1777174,
-    "ast_hash": "b7590492ee94bdbbb066bd6ee5bae671",
+    "mtime": 1786279182.6425896,
+    "ast_hash": "0a39a25d024b341429427195c15a8973",
     "semantic_hash": ""
   },
   "docs/progress-report.md": {
-    "mtime": 1783940391.536482,
-    "ast_hash": "0b7373e4f93b1cd97c6ae69a0feccc42",
+    "mtime": 1786279159.4522636,
+    "ast_hash": "9179463ef578d4857c00091887223116",
     "semantic_hash": ""
   },
   "docs/project-checklist-and-sprints.md": {
-    "mtime": 1783940288.4875498,
-    "ast_hash": "70c20db204926f1b3b8267170ba54334",
+    "mtime": 1786279170.769364,
+    "ast_hash": "82967c86ab455160a53ff05b8582d3cd",
     "semantic_hash": ""
   },
   "frontend/README.md": {
-    "mtime": 1783940289.171181,
-    "ast_hash": "99bdcbdb90dad1b9acdeb7242e5a5833",
+    "mtime": 1786279204.3050737,
+    "ast_hash": "aa5a8c40428b1aa9683133aad07a880a",
     "semantic_hash": ""
   },
   "frontend/index.html": {
