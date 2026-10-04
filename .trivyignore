@@ -1,0 +1,21 @@
+# Trivy ignore list. Each entry: reason, package, date, follow-up.
+# Only advisories that cannot be fixed by a dependency bump belong here.
+# CI scans with --severity CRITICAL,HIGH --ignore-unfixed, so moderate and
+# upstream-unfixed advisories are not reported today; they are recorded here
+# so an accepted risk stays accepted if the severity gate is widened.
+# Full triage: docs/progress-report.md ("Dependency audit").
+
+# react-router 6.x (runtime, moderate). Fix requires the react-router v7
+# major migration; low exposure in this SPA. Added 2026-10-04.
+# Follow-up: migrate to react-router v7.
+# Trivy reports them by CVE id (fixed in 7.18.0); GHSA aliases kept too.
+CVE-2026-53666
+CVE-2026-53669
+GHSA-wrjc-x8rr-h8h6
+GHSA-337j-9hxr-rhxg
+
+# golang.org/x/crypto/openpgp (moderate, no upstream fix: package is
+# deprecated). The backend never imports openpgp; govulncheck confirms the
+# symbol is unreachable. Not currently reported by Trivy. Added 2026-10-04.
+# Follow-up: drop when x/crypto removes openpgp or an advisory fix ships.
+GO-2026-5932

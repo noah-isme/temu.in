@@ -1,0 +1,17 @@
+# gitleaks configuration: the default ruleset plus a narrow allowlist of
+# known false positives. Every entry carries a reason; never allowlist a real
+# secret here (rotate it instead).
+
+title = "temu.in gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret fixtures and generated files"
+paths = [
+  # graphify cache: maps source paths to SHA-256 content hashes. File names
+  # containing "token"/"auth" make the 64-hex digests match generic-api-key.
+  # Generated, no credentials (verified 2026-10-04, commits 83bbfe6, dc67a9c).
+  '''(^|/)graphify-out/cache/''',
+]
