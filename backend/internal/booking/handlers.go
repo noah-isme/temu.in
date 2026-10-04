@@ -47,6 +47,10 @@ func NewHandlersWithService(svc *Service, providerSvc ProviderService) *Handlers
 	}
 }
 
+// Service exposes the underlying service so the router can attach optional
+// collaborators (e.g. WithSlotInvalidator) without a wider constructor.
+func (h *Handlers) Service() *Service { return h.service }
+
 func (h *Handlers) Register(rg *gin.RouterGroup) {
 	rg.GET("/bookings", h.List)
 	rg.POST("/bookings", h.Create)
@@ -57,6 +61,45 @@ func (h *Handlers) Register(rg *gin.RouterGroup) {
 	rg.PUT("/bookings/:bookingId", h.Reschedule)
 
 	rg.GET("/providers/:providerId/stats", h.GetProviderStats)
+	rg.GET("/providers/:providerId/bookings", h.ListProviderBookings)
+}
+
+// ListProviderBookings returns the provider's bookings to its owner or an
+// admin. Query: status (optional), limit, offset.
+func (h *Handlers) ListProviderBookings(c *gin.Context) {
+	providerID := c.Param("providerId")
+	if !auth.RequireProviderAccess(c, providerID, h.providerService) {
+		return
+	}
+	limit, offset := pageParams(c)
+
+	bookings, err := h.service.ListProviderBookings(c.Request.Context(), providerID, c.Query("status"), limit, offset)
+	if err != nil {
+		if errors.Is(err, ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status filter"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list bookings"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"bookings": newProviderBookingDTOs(bookings)})
+}
+
+// pageParams reads limit/offset query params; unparseable values fall back to
+// the defaults and the service clamps the range.
+func pageParams(c *gin.Context) (int, int) {
+	limit, offset := 20, 0
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil {
+			limit = v
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil {
+			offset = v
+		}
+	}
+	return limit, offset
 }
 
 func (h *Handlers) GetProviderStats(c *gin.Context) {
@@ -94,25 +137,14 @@ func (h *Handlers) List(c *gin.Context) {
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l := c.Query("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil {
-			limit = v
-		}
-	}
-	if o := c.Query("offset"); o != "" {
-		if v, err := strconv.Atoi(o); err == nil {
-			offset = v
-		}
-	}
+	limit, offset := pageParams(c)
 
 	bookings, err := h.service.ListUserBookings(c.Request.Context(), claims.UserID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list bookings"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"bookings": bookings})
+	c.JSON(http.StatusOK, gin.H{"bookings": newCustomerBookingDTOs(bookings)})
 }
 
 type createBookingRequest struct {
@@ -191,11 +223,12 @@ func (h *Handlers) Create(c *gin.Context) {
 		return
 	}
 
+	dto := NewCustomerBookingDTO(booking)
 	if payment != nil {
-		c.JSON(http.StatusCreated, gin.H{"booking": booking, "payment": payment})
+		c.JSON(http.StatusCreated, gin.H{"booking": dto, "payment": payment})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"booking": booking})
+	c.JSON(http.StatusCreated, gin.H{"booking": dto})
 }
 
 func (h *Handlers) GetByID(c *gin.Context) {
@@ -220,7 +253,7 @@ func (h *Handlers) GetByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get booking"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"booking": booking})
+	c.JSON(http.StatusOK, gin.H{"booking": NewCustomerBookingDTO(booking)})
 }
 
 type cancelRequest struct {
@@ -310,11 +343,19 @@ func (h *Handlers) Reschedule(c *gin.Context) {
 
 	err = h.service.RescheduleBooking(c.Request.Context(), uint(id), claims.UserID, bookingDate, startTime, endTime)
 	if err != nil {
-		if err == ErrBookingNotFound {
+		if errors.Is(err, ErrBookingNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
 			return
 		}
-		if err == ErrSlotUnavailable || err == ErrBookingConflict {
+		if errors.Is(err, ErrServiceNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, ErrSlotUnavailable) || errors.Is(err, ErrBookingConflict) || errors.Is(err, ErrNotReschedulable) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}

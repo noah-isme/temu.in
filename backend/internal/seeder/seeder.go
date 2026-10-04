@@ -1,7 +1,7 @@
 package seeder
 
 import (
-	"log"
+	"log/slog"
 	"os"
 
 	"golang.org/x/crypto/bcrypt"
@@ -18,7 +18,7 @@ func SeedAdmin(db *gorm.DB) error {
 	email := os.Getenv("ADMIN_EMAIL")
 	password := os.Getenv("ADMIN_PASSWORD")
 	if email == "" || password == "" {
-		log.Println("ADMIN_SEED=true but ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping admin seed")
+		slog.Warn("ADMIN_SEED=true but ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping admin seed")
 		return nil
 	}
 

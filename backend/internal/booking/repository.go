@@ -2,6 +2,7 @@ package booking
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -56,11 +57,14 @@ func (r *Repository) CreateWithPayment(b *models.Booking, p *models.Payment) err
 	return nil
 }
 
-// SetStatusByPayment applies a provider state to the linked booking and keeps
-// booking.status and booking.payment_status in sync. Replaying a webhook is a
-// no-op once the booking has reached the same state.
-func (r *Repository) SetStatusByPayment(paymentID uint, status string) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+// SetStatusByPayment applies a provider payment state to the linked booking
+// and keeps booking.status and booking.payment_status in sync. It returns the
+// booking's resulting status, or "" when no booking is linked to the payment.
+// Only columns whose value actually changes are written, so replaying the same
+// webhook is a true no-op (updated_at is not bumped).
+func (r *Repository) SetStatusByPayment(paymentID uint, status string) (string, error) {
+	var bookingStatus string
+	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var booking models.Booking
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_id = ?", paymentID).First(&booking).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -68,42 +72,70 @@ func (r *Repository) SetStatusByPayment(paymentID uint, status string) error {
 			return nil
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("lock booking for payment %d: %w", paymentID, err)
+		}
+		bookingStatus = booking.Status
+
+		var paymentStatus, targetStatus string
+		switch status {
+		case models.PaymentStatusPending, models.PaymentStatusCreated:
+			paymentStatus, targetStatus = models.BookingPaymentPending, models.BookingStatusPending
+		case models.PaymentStatusSucceeded, models.BookingStatusConfirmed:
+			paymentStatus, targetStatus = models.BookingPaymentPaid, models.BookingStatusConfirmed
+		case models.PaymentStatusFailed, models.PaymentStatusExpired, models.PaymentStatusCancelled:
+			paymentStatus, targetStatus = models.BookingPaymentFailed, models.BookingStatusPaymentFailed
+		default:
+			return nil
 		}
 
 		updates := map[string]interface{}{}
-		switch status {
-		case models.PaymentStatusPending, models.PaymentStatusCreated:
-			updates["payment_status"] = models.BookingPaymentPending
-			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusPending) {
-				updates["status"] = models.BookingStatusPending
-			}
-		case models.PaymentStatusSucceeded, models.BookingStatusConfirmed:
-			updates["payment_status"] = models.BookingPaymentPaid
-			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusConfirmed) || booking.Status == models.BookingStatusConfirmed {
-				updates["status"] = models.BookingStatusConfirmed
-			}
-		case models.PaymentStatusFailed, models.PaymentStatusExpired, models.PaymentStatusCancelled:
-			updates["payment_status"] = models.BookingPaymentFailed
-			if models.CanTransitionBookingStatus(booking.Status, models.BookingStatusPaymentFailed) || booking.Status == models.BookingStatusPaymentFailed {
-				updates["status"] = models.BookingStatusPaymentFailed
-			}
-		default:
-			return nil
+		if booking.PaymentStatus != paymentStatus {
+			updates["payment_status"] = paymentStatus
+		}
+		if booking.Status != targetStatus && models.CanTransitionBookingStatus(booking.Status, targetStatus) {
+			updates["status"] = targetStatus
+			bookingStatus = targetStatus
 		}
 		if len(updates) == 0 {
 			return nil
 		}
-		return tx.Model(&models.Booking{}).Where("id = ?", booking.ID).Updates(updates).Error
+		if err := tx.Model(&models.Booking{}).Where("id = ?", booking.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("update booking %d for payment %d: %w", booking.ID, paymentID, err)
+		}
+		return nil
 	})
+	if err != nil {
+		return "", err
+	}
+	return bookingStatus, nil
 }
 
 func (r *Repository) Create(b *models.Booking) error {
 	return r.db.Create(b).Error
 }
 
-func (r *Repository) Update(b *models.Booking) error {
-	return r.db.Save(b).Error
+// Reschedule moves a booking to a new date and time range with one guarded,
+// column-scoped UPDATE. Only booking_date, start_time, end_time and updated_at
+// are written, so a concurrent status or payment change (webhook, cancel,
+// confirm) can never be reverted by a stale snapshot. The statement matches
+// only the caller's own booking that is not cancelled or completed; when no
+// row matches it returns ErrNotReschedulable. A 23P01 exclusion violation is
+// returned unchanged for the caller to map.
+func (r *Repository) Reschedule(id, userID uint, date, start, end time.Time) error {
+	// Struct + Select (rather than a map) keeps the clock serializer on the
+	// time columns and lets GORM bump updated_at.
+	res := r.db.Model(&models.Booking{}).
+		Where("id = ? AND user_id = ? AND status NOT IN ?", id, userID,
+			[]string{models.BookingStatusCancelled, models.BookingStatusCompleted}).
+		Select("booking_date", "start_time", "end_time").
+		Updates(&models.Booking{BookingDate: date, StartTime: start, EndTime: end})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotReschedulable
+	}
+	return nil
 }
 
 func (r *Repository) List(limit, offset int) ([]models.Booking, error) {
@@ -127,6 +159,42 @@ func (r *Repository) ListByUser(userID uint, limit, offset int) ([]models.Bookin
 func (r *Repository) FindByIDForUser(id uint, userID uint) (*models.Booking, error) {
 	var b models.Booking
 	if err := r.db.Where("id = ? AND user_id = ?", id, userID).First(&b).Error; err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// ListByProviderWithNames returns a provider's bookings (newest date and time
+// first) with the Service preloaded for DTO names. status filters when
+// non-empty. It is read-only: never pass its results to Update.
+func (r *Repository) ListByProviderWithNames(providerID, status string, limit, offset int) ([]models.Booking, error) {
+	query := r.db.Preload("Service").Where("provider_id = ?", providerID)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	var out []models.Booking
+	if err := query.Order("booking_date desc, start_time desc, id desc").Limit(limit).Offset(offset).Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("list bookings for provider: %w", err)
+	}
+	return out, nil
+}
+
+// ListByUserWithNames returns a customer's bookings with the provider and
+// service preloaded for DTO names. Read-only: never pass results to Update.
+func (r *Repository) ListByUserWithNames(userID uint, limit, offset int) ([]models.Booking, error) {
+	var out []models.Booking
+	if err := r.db.Preload("ServiceProvider").Preload("Service").Where("user_id = ?", userID).
+		Limit(limit).Offset(offset).Order("id desc").Find(&out).Error; err != nil {
+		return nil, fmt.Errorf("list bookings for user: %w", err)
+	}
+	return out, nil
+}
+
+// FindByIDForUserWithNames loads one of the user's bookings with the provider
+// and service preloaded for DTO names. Read-only: never pass it to Update.
+func (r *Repository) FindByIDForUserWithNames(id uint, userID uint) (*models.Booking, error) {
+	var b models.Booking
+	if err := r.db.Preload("ServiceProvider").Preload("Service").Where("id = ? AND user_id = ?", id, userID).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -197,7 +265,7 @@ func (r *Repository) CheckConflict(providerID string, date time.Time, startTime,
 	var count int64
 	query := r.db.Model(&models.Booking{}).
 		Where("provider_id = ? AND booking_date = ? AND status NOT IN (?)", providerID, date, []string{"cancelled"}).
-		Where("start_time < ? AND end_time > ?", endTime, startTime)
+		Where("start_time < ? AND end_time > ?", models.FormatClock(endTime), models.FormatClock(startTime))
 
 	if excludeID > 0 {
 		query = query.Where("id != ?", excludeID)

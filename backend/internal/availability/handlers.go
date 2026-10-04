@@ -93,7 +93,7 @@ func (h *Handlers) GetAvailableSlots(c *gin.Context) {
 		return
 	}
 
-	slots, err := h.service.repo.GetAvailableSlots(providerID, date, selectedService.Duration)
+	slots, err := h.service.GetAvailableSlots(c.Request.Context(), providerID, date, selectedService.Duration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to calculate availability"})
 		return
@@ -121,7 +121,12 @@ type CreateScheduleRequest struct {
 	DayOfWeek   int    `json:"day_of_week" binding:"min=0,max=6"`
 	StartTime   string `json:"start_time" binding:"required,len=5"` // HH:MM
 	EndTime     string `json:"end_time" binding:"required,len=5"`   // HH:MM
-	IsAvailable bool   `json:"is_available"`
+	IsAvailable *bool  `json:"is_available"`                        // omitted means available
+}
+
+// isAvailable returns the requested availability, defaulting to true when omitted.
+func (r CreateScheduleRequest) isAvailable() bool {
+	return r.IsAvailable == nil || *r.IsAvailable
 }
 
 func (h *Handlers) ListSchedules(c *gin.Context) {
@@ -135,7 +140,7 @@ func (h *Handlers) ListSchedules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list schedules"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"schedules": schedules})
+	c.JSON(http.StatusOK, gin.H{"schedules": toScheduleDTOs(schedules)})
 }
 
 func (h *Handlers) CreateSchedule(c *gin.Context) {
@@ -154,7 +159,7 @@ func (h *Handlers) CreateSchedule(c *gin.Context) {
 		DayOfWeek:   req.DayOfWeek,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
-		IsAvailable: req.IsAvailable,
+		IsAvailable: req.isAvailable(),
 	}
 
 	if err := h.service.CreateSchedule(schedule); err != nil {
@@ -162,7 +167,7 @@ func (h *Handlers) CreateSchedule(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"schedule": schedule})
+	c.JSON(http.StatusCreated, gin.H{"schedule": toScheduleDTO(*schedule)})
 }
 
 func (h *Handlers) UpdateSchedule(c *gin.Context) {
@@ -183,7 +188,7 @@ func (h *Handlers) UpdateSchedule(c *gin.Context) {
 		DayOfWeek:   req.DayOfWeek,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
-		IsAvailable: req.IsAvailable,
+		IsAvailable: req.isAvailable(),
 	}
 
 	if err := h.service.UpdateSchedule(id, providerID, schedule); err != nil {
@@ -195,7 +200,7 @@ func (h *Handlers) UpdateSchedule(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"schedule": schedule})
+	c.JSON(http.StatusOK, gin.H{"schedule": toScheduleDTO(*schedule)})
 }
 
 func (h *Handlers) DeleteSchedule(c *gin.Context) {
@@ -256,7 +261,7 @@ func (h *Handlers) ListExceptions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list exceptions"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"exceptions": exceptions})
+	c.JSON(http.StatusOK, gin.H{"exceptions": toExceptionDTOs(exceptions)})
 }
 
 func (h *Handlers) CreateException(c *gin.Context) {
@@ -290,7 +295,7 @@ func (h *Handlers) CreateException(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"exception": exception})
+	c.JSON(http.StatusCreated, gin.H{"exception": toExceptionDTO(*exception)})
 }
 
 func (h *Handlers) UpdateException(c *gin.Context) {
@@ -330,7 +335,7 @@ func (h *Handlers) UpdateException(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"exception": exception})
+	c.JSON(http.StatusOK, gin.H{"exception": toExceptionDTO(*exception)})
 }
 
 func (h *Handlers) DeleteException(c *gin.Context) {

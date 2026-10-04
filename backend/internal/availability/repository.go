@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"temu.in/backend/internal/models"
 )
 
@@ -53,8 +54,22 @@ func (r *Repository) DeleteSchedule(id, providerID string) error {
 	return nil
 }
 
+// nullableClock maps an empty clock string to SQL NULL. Full-day exceptions
+// have no times, and Postgres rejects an empty string for a `time` column.
+func nullableClock(value string) interface{} {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 func (r *Repository) CreateException(exception *models.AvailabilityException) error {
-	return r.db.Create(exception).Error
+	tx := r.db.Omit(clause.Associations)
+	if exception.StartTime == "" && exception.EndTime == "" {
+		// Leave start_time/end_time NULL for a full-day exception.
+		tx = tx.Omit(clause.Associations, "start_time", "end_time")
+	}
+	return tx.Create(exception).Error
 }
 
 func (r *Repository) GetExceptionsByProviderAndDateRange(providerID string, startDate, endDate time.Time) ([]models.AvailabilityException, error) {
@@ -66,8 +81,8 @@ func (r *Repository) GetExceptionsByProviderAndDateRange(providerID string, star
 func (r *Repository) UpdateException(id, providerID string, exception *models.AvailabilityException) error {
 	result := r.db.Model(&models.AvailabilityException{}).Where("id = ? AND provider_id = ?", id, providerID).Updates(map[string]interface{}{
 		"date":         exception.Date,
-		"start_time":   exception.StartTime,
-		"end_time":     exception.EndTime,
+		"start_time":   nullableClock(exception.StartTime),
+		"end_time":     nullableClock(exception.EndTime),
 		"is_available": exception.IsAvailable,
 		"reason":       exception.Reason,
 	})

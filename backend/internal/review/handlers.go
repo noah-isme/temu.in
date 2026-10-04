@@ -6,11 +6,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"temu.in/backend/internal/auth"
+	"temu.in/backend/internal/models"
 	"temu.in/backend/internal/validator"
 )
 
+// reviewService is the subset of *Service the handlers use.
+type reviewService interface {
+	CreateReview(userID uint, bookingID uint, req CreateReviewRequest) (*models.Review, error)
+	ListProviderReviews(providerID string, limit, offset int) ([]models.Review, error)
+	ListUserReviews(userID uint, limit, offset int) ([]models.Review, error)
+	GetProviderStats(providerID string) (*ProviderReviewStats, error)
+}
+
 type Handlers struct {
-	service *Service
+	service reviewService
 }
 
 func NewHandlers(service *Service) *Handlers {
@@ -66,7 +75,7 @@ func (h *Handlers) CreateReview(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"review": review})
+	c.JSON(http.StatusCreated, gin.H{"review": NewPublicReview(review)})
 }
 
 func (h *Handlers) ListProviderReviews(c *gin.Context) {
@@ -91,7 +100,7 @@ func (h *Handlers) ListProviderReviews(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"reviews": reviews})
+	c.JSON(http.StatusOK, gin.H{"reviews": newPublicReviews(reviews)})
 }
 
 func (h *Handlers) ListUserReviews(c *gin.Context) {
@@ -119,7 +128,7 @@ func (h *Handlers) ListUserReviews(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"reviews": reviews})
+	c.JSON(http.StatusOK, gin.H{"reviews": newPublicReviews(reviews)})
 }
 
 func (h *Handlers) GetProviderStats(c *gin.Context) {

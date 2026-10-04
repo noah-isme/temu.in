@@ -203,8 +203,12 @@ func normalizeProviderStatus(transactionStatus, fraudStatus string) string {
 	case "settlement":
 		return "succeeded"
 	case "capture":
-		if strings.EqualFold(fraudStatus, "deny") {
+		switch strings.ToLower(fraudStatus) {
+		case "deny":
 			return "failed"
+		case "challenge":
+			// Funds are held pending a manual fraud review; not paid yet.
+			return "pending"
 		}
 		return "succeeded"
 	case "pending":
@@ -213,6 +217,8 @@ func normalizeProviderStatus(transactionStatus, fraudStatus string) string {
 		return "expired"
 	case "cancel", "deny", "failure":
 		return "failed"
+	case "refund", "partial_refund", "chargeback", "partial_chargeback":
+		return "refunded"
 	default:
 		return "pending"
 	}

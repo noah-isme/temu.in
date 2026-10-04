@@ -140,9 +140,12 @@ func (r *Repository) MarkSent(ctx context.Context, notification models.Notificat
 	})
 }
 
-func (r *Repository) MarkFailure(ctx context.Context, notification models.Notification, deliveryErr error, nextAttempt time.Time, maxAttempts int) error {
+// MarkFailure records a failed delivery attempt. deadLettered is true only when
+// this call moved the row from processing to dead_letter; a worker that lost
+// the processing race (row no longer in processing) gets false.
+func (r *Repository) MarkFailure(ctx context.Context, notification models.Notification, deliveryErr error, nextAttempt time.Time, maxAttempts int) (deadLettered bool, err error) {
 	if r == nil || r.db == nil {
-		return errors.New("notification repository is unavailable")
+		return false, errors.New("notification repository is unavailable")
 	}
 	if maxAttempts <= 0 {
 		maxAttempts = 8
@@ -161,7 +164,8 @@ func (r *Repository) MarkFailure(ctx context.Context, notification models.Notifi
 		errorText = errorText[:4000]
 	}
 	now := time.Now().UTC()
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	transitioned := false
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&models.Notification{}).Where("id = ? AND status = ?", notification.ID, models.NotificationStatusProcessing).Updates(map[string]interface{}{
 			"status":          status,
 			"locked_at":       nil,
@@ -175,6 +179,7 @@ func (r *Repository) MarkFailure(ctx context.Context, notification models.Notifi
 		if result.RowsAffected != 1 {
 			return nil
 		}
+		transitioned = true
 		return tx.Create(&models.NotificationDelivery{
 			NotificationID: notification.ID,
 			Attempt:        notification.Attempts,
@@ -182,4 +187,8 @@ func (r *Repository) MarkFailure(ctx context.Context, notification models.Notifi
 			Error:          errorText,
 		}).Error
 	})
+	if err != nil {
+		return false, err
+	}
+	return transitioned && status == models.NotificationStatusDeadLetter, nil
 }

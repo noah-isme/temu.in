@@ -3,7 +3,9 @@ package router
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -15,6 +17,7 @@ import (
 	"temu.in/backend/internal/availability"
 	"temu.in/backend/internal/booking"
 	"temu.in/backend/internal/config"
+	"temu.in/backend/internal/database"
 	"temu.in/backend/internal/favorite"
 	"temu.in/backend/internal/health"
 	"temu.in/backend/internal/models"
@@ -25,7 +28,10 @@ import (
 	"temu.in/backend/internal/service"
 	"temu.in/backend/internal/token"
 	"temu.in/backend/internal/user"
+	"temu.in/backend/openapi"
 )
+
+const slotCacheTTL = 5 * time.Minute
 
 type Router struct {
 	engine             *gin.Engine
@@ -34,6 +40,9 @@ type Router struct {
 	cache              *redis.Client
 	notificationSvc    notification.Service
 	notificationWorker *notification.Worker
+	// slotCache is shared by every availability.Service so invalidations from
+	// any path hit the same version keys. A nil Redis client makes it a no-op.
+	slotCache *availability.SlotCache
 }
 
 func New(engine *gin.Engine, cfg *config.Config, db *gorm.DB, cache *redis.Client) *Router {
@@ -48,13 +57,18 @@ func New(engine *gin.Engine, cfg *config.Config, db *gorm.DB, cache *redis.Clien
 		templateIDs = sendGridTemplateIDs(cfg)
 	}
 	notificationRepo := notification.NewRepository(db)
-	notificationSvc := notification.NewService(notificationRepo)
+	frontendBaseURL := notification.DefaultFrontendBaseURL
+	if cfg != nil && cfg.FrontendBaseURL != "" {
+		frontendBaseURL = cfg.FrontendBaseURL
+	}
+	notificationSvc := notification.NewServiceWithBaseURL(notificationRepo, frontendBaseURL)
 	reminderScheduler, _ := notificationSvc.(notification.ReminderScheduler)
 	return &Router{
 		engine:             engine,
 		cfg:                cfg,
 		db:                 db,
 		cache:              cache,
+		slotCache:          availability.NewSlotCache(cache, slotCacheTTL),
 		notificationSvc:    notificationSvc,
 		notificationWorker: notification.NewWorker(notificationRepo, notification.NewSendGridProvider(apiKey, fromEmail, templateIDs), notification.WorkerConfig{}, reminderScheduler),
 	}
@@ -87,7 +101,7 @@ func (r *Router) StartBackgroundWorkers(ctx context.Context) {
 	if r.notificationWorker != nil {
 		go func() {
 			if err := r.notificationWorker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Printf("notification worker stopped: %v", err)
+				slog.ErrorContext(ctx, "notification worker stopped", "error", err)
 			}
 		}()
 	}
@@ -104,13 +118,27 @@ func (r *Router) RegisterAll() {
 	r.registerBookings()
 	r.registerPayments()
 	r.registerFavorites()
+	r.registerDocs()
+}
+
+// registerDocs serves the embedded OpenAPI contract. It is public and has no
+// dependencies, so it works with a nil DB/cache.
+func (r *Router) registerDocs() {
+	r.engine.GET("/api/openapi.yaml", func(c *gin.Context) {
+		c.Data(http.StatusOK, "application/yaml; charset=utf-8", openapi.Spec)
+	})
 }
 
 func (r *Router) registerHealth() {
-	health.RegisterRoutes(r.engine)
-	apiGroup := r.engine.Group("/api")
-	apiGroup.GET("/health/live", func(c *gin.Context) { c.JSON(200, gin.H{"status": "live"}) })
-	apiGroup.GET("/health/ready", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ready"}) })
+	h := health.NewHandler(health.DefaultTimeout)
+	if r.db != nil {
+		h.With("postgres", health.PingFunc(database.Pinger(r.db)), true)
+	}
+	if r.cache != nil {
+		h.With("redis", health.PingFunc(func(ctx context.Context) error { return r.cache.Ping(ctx).Err() }), false)
+	}
+	health.RegisterRoutes(r.engine.Group("/health"), h)
+	health.RegisterRoutes(r.engine.Group("/api/health"), h)
 }
 
 func (r *Router) registerAuth() {
@@ -167,7 +195,7 @@ func (r *Router) registerBookings() {
 
 	// Create availability service for conflict detection
 	availabilityRepo := availability.NewRepository(r.db)
-	availabilitySvc := availability.NewService(availabilityRepo)
+	availabilitySvc := availability.NewServiceWithCache(availabilityRepo, r.slotCache)
 
 	providerRepo := provider.NewRepository(r.db)
 	providerSvc := provider.NewService(providerRepo)
@@ -177,6 +205,7 @@ func (r *Router) registerBookings() {
 	userRepo := user.NewRepository(r.db)
 
 	handlers := booking.NewHandlersWithDependencies(bookingRepo, paymentRepo, availabilitySvc, r.notificationSvc, userRepo, providerSvc, serviceCatalog, paymentService)
+	handlers.Service().WithSlotInvalidator(availabilitySvc)
 
 	api := r.engine.Group("/api")
 	bookingsGroup := api.Group("/")
@@ -217,7 +246,7 @@ func (r *Router) registerFavorites() {
 
 func (r *Router) registerAvailability() {
 	repo := availability.NewRepository(r.db)
-	svc := availability.NewService(repo)
+	svc := availability.NewServiceWithCache(repo, r.slotCache)
 
 	providerRepo := provider.NewRepository(r.db)
 	providerSvc := provider.NewService(providerRepo)
@@ -251,34 +280,10 @@ func (r *Router) registerPayments() {
 	paymentService := payment.NewService(paymentRepo, paymentProvider)
 	serviceRepo := service.NewRepository(r.db)
 	serviceCatalog := service.NewService(serviceRepo)
-	handlers := payment.NewHandlersWithDependencies(paymentRepo, paymentService, serviceCatalog, func(paymentID uint, status string) error {
-		if err := bookingRepo.SetStatusByPayment(paymentID, status); err != nil {
-			return err
-		}
-		if status != models.PaymentStatusSucceeded || r.notificationSvc == nil {
-			return nil
-		}
-		receiptService, ok := r.notificationSvc.(notification.PaymentReceiptService)
-		if !ok {
-			return errors.New("payment receipt notification service is unavailable")
-		}
-
-		bookingRecord, err := bookingRepo.FindByPaymentID(paymentID)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		paymentRecord, err := paymentRepo.FindByID(paymentID)
-		if err != nil {
-			return err
-		}
-		if err := r.notificationSvc.SendBookingConfirmation(context.Background(), bookingRecord, &bookingRecord.User, &bookingRecord.ServiceProvider); err != nil {
-			return err
-		}
-		return receiptService.SendPaymentReceipt(context.Background(), bookingRecord, &bookingRecord.User, paymentRecord)
-	})
+	// Payment failures free the booked slot, so the finalizer invalidates the
+	// provider's cached slots through the shared slot cache.
+	availabilitySvc := availability.NewServiceWithCache(availability.NewRepository(r.db), r.slotCache)
+	handlers := payment.NewHandlersWithDependencies(paymentRepo, paymentService, serviceCatalog, payment.NewBookingFinalizer(bookingRepo, paymentRepo, r.notificationSvc, availabilitySvc))
 
 	api := r.engine.Group("/api")
 	protected := api.Group("/")

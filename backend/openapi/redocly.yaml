@@ -1,0 +1,10 @@
+# Redocly lint configuration for openapi.yaml.
+# Run: npx --yes @redocly/cli@1 lint --config backend/openapi/redocly.yaml backend/openapi/openapi.yaml
+extends:
+  - recommended
+rules:
+  # gin registers `/api/favorites/` and `/api/providers/{providerId}/services/`
+  # with a trailing slash and `RedirectTrailingSlash` would 301 the slash-less
+  # form; the spec mirrors the router verbatim so the route-walk test can be
+  # exact.
+  no-path-trailing-slash: off
