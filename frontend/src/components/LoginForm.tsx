@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import { login, setAuthToken, getAuthToken } from '../api';
 import { useAppStore } from '../store/app-store';
 import toast from '../lib/toast';
@@ -62,6 +63,10 @@ export default function LoginForm({ onLogin }: { onLogin?: (token: string) => vo
       </button>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {token && <p className="mt-2 text-sm text-green-600">Logged in</p>}
+      <p className="mt-4 flex gap-4 text-sm">
+        <Link to="/register" className="text-primary underline">Daftar</Link>
+        <Link to="/forgot-password" className="text-primary underline">Lupa password</Link>
+      </p>
     </form>
   );
 }

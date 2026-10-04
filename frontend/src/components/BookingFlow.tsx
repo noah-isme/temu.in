@@ -121,7 +121,7 @@ export default function BookingFlow(): JSX.Element {
         toast.success(message);
         queryClient.invalidateQueries(['providers']);
       } else {
-        const message = paymentResult.message || `Payment status: ${paymentResult.status}`;
+        const message = `Payment status: ${paymentResult.status}`;
         setError(message);
         toast.error(message);
       }

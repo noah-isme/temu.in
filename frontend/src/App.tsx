@@ -9,6 +9,14 @@ import BookingPage from './pages/BookingPage';
 import ServicesPage from './pages/ServicesPage';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
+import MyBookingsPage from './pages/MyBookingsPage';
+import BookingDetailPage from './pages/BookingDetailPage';
+import ProviderDashboardPage from './pages/ProviderDashboardPage';
+import { useMyProvider } from './hooks/useMyProvider';
 import RequireAuth from './components/RequireAuth';
 
 function AppNavLink({ to, label }: { to: string; label: string }) {
@@ -29,6 +37,8 @@ export default function App(): JSX.Element {
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
   const [open, setOpen] = useState(false);
+  // Enabled only once `user` is set, so anonymous visitors never hit /providers/me.
+  const { data: myProvider } = useMyProvider();
 
   useEffect(() => {
     initialize();
@@ -46,6 +56,8 @@ export default function App(): JSX.Element {
                   <AppNavLink to="/providers" label="Providers" />
                   <AppNavLink to="/booking" label="Booking" />
                   <AppNavLink to="/services" label="Services" />
+                  {user && <AppNavLink to="/bookings" label="Booking saya" />}
+                  {user && myProvider && <AppNavLink to="/dashboard" label="Dashboard" />}
                   {user?.role === 'admin' && <AppNavLink to="/admin" label="Admin" />}
                 </nav>
             </div>
@@ -80,6 +92,8 @@ export default function App(): JSX.Element {
                 <NavLink to="/providers" onClick={() => setOpen(false)} className="py-2">Providers</NavLink>
                 <NavLink to="/booking" onClick={() => setOpen(false)} className="py-2">Booking</NavLink>
                 <NavLink to="/services" onClick={() => setOpen(false)} className="py-2">Services</NavLink>
+                {user && <NavLink to="/bookings" onClick={() => setOpen(false)} className="py-2">Booking saya</NavLink>}
+                {user && myProvider && <NavLink to="/dashboard" onClick={() => setOpen(false)} className="py-2">Dashboard</NavLink>}
                 {user?.role === 'admin' && <NavLink to="/admin" onClick={() => setOpen(false)} className="py-2">Admin</NavLink>}
                 <NavLink to="/login" onClick={() => setOpen(false)} className="py-2">Login</NavLink>
               </div>
@@ -94,8 +108,15 @@ export default function App(): JSX.Element {
               <Route path="/providers" element={<ProvidersPage />} />
               <Route path="/booking" element={<BookingPage />} />
               <Route path="/services" element={<ServicesPage />} />
+              <Route path="/bookings" element={<RequireAuth><MyBookingsPage /></RequireAuth>} />
+              <Route path="/bookings/:id" element={<RequireAuth><BookingDetailPage /></RequireAuth>} />
+              <Route path="/dashboard" element={<RequireAuth><ProviderDashboardPage /></RequireAuth>} />
               <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
             </Routes>
           </div>
         </PageTransition>
