@@ -23,8 +23,18 @@ type ServiceCatalog interface {
 
 type BookingFinalizer func(paymentID uint, providerStatus string) error
 
+// paymentStore is the subset of *Repository the handlers use. It lets the
+// webhook and intent flows be tested with an in-memory fake.
+type paymentStore interface {
+	Create(p *models.Payment) error
+	FindByOrderID(orderID string) (*models.Payment, error)
+	FindByClientSecret(clientSecret string) (*models.Payment, error)
+	UpdateProviderStatus(id uint, status, transactionID string) (*models.Payment, error)
+	RecordWebhookEvent(eventKey string, paymentID uint) (bool, error)
+}
+
 type Handlers struct {
-	repo            *Repository
+	repo            paymentStore
 	service         *Service
 	serviceCatalog  ServiceCatalog
 	finalizeBooking BookingFinalizer

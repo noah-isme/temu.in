@@ -55,6 +55,15 @@ func TestNormalizeWebhookStatus(t *testing.T) {
 		{name: "expired", status: "expire", expected: "expired"},
 		{name: "denied", status: "deny", expected: "failed"},
 		{name: "fraud denied capture", status: "capture", fraud: "deny", expected: "failed"},
+		{name: "accepted capture", status: "capture", fraud: "accept", expected: "succeeded"},
+		{name: "challenged capture", status: "capture", fraud: "challenge", expected: "pending"},
+		{name: "cancelled", status: "cancel", expected: "failed"},
+		{name: "failure", status: "failure", expected: "failed"},
+		{name: "refund", status: "refund", expected: "refunded"},
+		{name: "partial refund", status: "partial_refund", expected: "refunded"},
+		{name: "chargeback", status: "chargeback", expected: "refunded"},
+		{name: "partial chargeback", status: "partial_chargeback", expected: "refunded"},
+		{name: "unknown", status: "authorize", expected: "pending"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -7,17 +7,42 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"temu.in/backend/internal/models"
 )
 
+// DefaultFrontendBaseURL is used for email links when no base URL is configured.
+const DefaultFrontendBaseURL = "http://localhost:5173"
+
 type service struct {
-	repo *Repository
+	repo    *Repository
+	baseURL string
 }
 
 func NewService(repo *Repository) Service {
-	return &service{repo: repo}
+	return NewServiceWithBaseURL(repo, DefaultFrontendBaseURL)
+}
+
+// NewServiceWithBaseURL builds the service with the public frontend origin used
+// in password-reset and email-verification links. A trailing slash is dropped
+// and an empty value falls back to DefaultFrontendBaseURL.
+func NewServiceWithBaseURL(repo *Repository, baseURL string) Service {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = DefaultFrontendBaseURL
+	}
+	return &service{repo: repo, baseURL: baseURL}
+}
+
+// frontendLink builds an absolute frontend URL carrying an escaped token.
+func (s *service) frontendLink(path, token string) string {
+	base := s.baseURL
+	if base == "" {
+		base = DefaultFrontendBaseURL
+	}
+	return base + path + "?token=" + url.QueryEscape(token)
 }
 
 func (s *service) enqueue(ctx context.Context, notificationType, key, recipientEmail, recipientName, subject string, data map[string]string, bookingID, userID *uint, providerID *string) error {
@@ -51,8 +76,8 @@ func bookingData(booking *models.Booking) map[string]string {
 		"booking_id":    strconv.FormatUint(uint64(booking.ID), 10),
 		"customer_name": booking.CustomerName,
 		"booking_date":  booking.BookingDate.Format("2006-01-02"),
-		"start_time":    booking.StartTime.Format("15:04"),
-		"end_time":      booking.EndTime.Format("15:04"),
+		"start_time":    models.FormatClockHM(booking.StartTime),
+		"end_time":      models.FormatClockHM(booking.EndTime),
 	}
 	return data
 }
@@ -209,7 +234,7 @@ func (s *service) SendPasswordReset(ctx context.Context, user *models.User, toke
 	}
 	data := map[string]string{
 		"recipient_name": user.Name,
-		"reset_link":     "http://localhost:5173/reset-password?token=" + url.QueryEscape(token),
+		"reset_link":     s.frontendLink("/reset-password", token),
 	}
 	return s.enqueue(ctx, models.NotificationTypePasswordReset,
 		fmt.Sprintf("user:%d:password-reset:%s", user.ID, token), user.Email, user.Name,
@@ -222,7 +247,7 @@ func (s *service) SendEmailVerification(ctx context.Context, user *models.User, 
 	}
 	data := map[string]string{
 		"recipient_name": user.Name,
-		"verify_link":    "http://localhost:5173/verify-email?token=" + url.QueryEscape(token),
+		"verify_link":    s.frontendLink("/verify-email", token),
 	}
 	return s.enqueue(ctx, models.NotificationTypeEmailVerification,
 		fmt.Sprintf("user:%d:email-verification:%s", user.ID, token), user.Email, user.Name,

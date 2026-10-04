@@ -1,0 +1,2396 @@
+openapi: 3.0.3
+info:
+  title: temu.in API
+  version: 0.1.0
+  description: |
+    Booking platform API for temu.in: providers publish services and weekly
+    availability, customers book slots (paid bookings go through Midtrans),
+    and providers manage their bookings.
+
+    This document is hand-written and is the contract for the backend. It is a
+    literal mirror of the gin router: every path below includes the `/api`
+    prefix (plus the root `/health` probes), and trailing-slash routes such as
+    `/api/favorites/` are spelled exactly as registered. A contract test
+    (`internal/router/openapi_test.go`) fails when a route is added to one side
+    only, and `internal/router/openapi_response_test.go` validates real
+    handler responses against the schemas below.
+
+    Authentication: most endpoints take a short-lived JWT access token in the
+    `Authorization: Bearer <token>` header. The refresh token travels only in
+    the HttpOnly `refresh_token` cookie.
+
+    Every response carries an `X-Request-ID` header. All endpoints may answer
+    `429` when the per-IP rate limit is exceeded (health probes are exempt).
+servers:
+  - url: /
+    description: Same origin (paths include the /api prefix)
+tags:
+  - name: health
+    description: Liveness and readiness probes.
+  - name: docs
+    description: This API contract.
+  - name: auth
+    description: Registration, login, token refresh and account recovery.
+  - name: providers
+    description: Service provider profiles.
+  - name: services
+    description: Services offered by providers.
+  - name: availability
+    description: Weekly schedules, date exceptions and bookable slots.
+  - name: bookings
+    description: Customer bookings and provider booking management.
+  - name: reviews
+    description: Reviews of completed bookings.
+  - name: payments
+    description: Midtrans payment intents, confirmation and webhooks.
+  - name: favorites
+    description: A customer's favourite services and providers.
+  - name: admin
+    description: Administrator-only operations.
+security:
+  - bearerAuth: []
+
+paths:
+  /health/live:
+    get:
+      operationId: healthLive
+      summary: Liveness probe
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: The process is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+  /health/ready:
+    get:
+      operationId: healthReady
+      summary: Readiness probe
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Ready'
+        '503':
+          $ref: '#/components/responses/NotReady'
+  /api/health/live:
+    get:
+      operationId: apiHealthLive
+      summary: Liveness probe (under /api)
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: The process is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+  /api/health/ready:
+    get:
+      operationId: apiHealthReady
+      summary: Readiness probe (under /api)
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Ready'
+        '503':
+          $ref: '#/components/responses/NotReady'
+
+  /api/openapi.yaml:
+    get:
+      operationId: getOpenAPISpec
+      summary: This OpenAPI document
+      tags: [docs]
+      security: []
+      responses:
+        '200':
+          description: The OpenAPI 3.0.3 document as YAML.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /api/auth/register:
+    post:
+      operationId: authRegister
+      summary: Register a customer account
+      description: >-
+        Creates a `user`-role account, returns an access token and sets the
+        `refresh_token` cookie. A verification email is queued.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuthSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/login:
+    post:
+      operationId: authLogin
+      summary: Log in with email and password
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuthSuccess'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/refresh:
+    post:
+      operationId: authRefresh
+      summary: Rotate the refresh token and issue a new access token
+      description: >-
+        Reads the `refresh_token` cookie, revokes it, sets a new one and
+        returns a new access token. Replaying a rotated cookie fails with 401.
+      tags: [auth]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: New access token; a rotated `refresh_token` cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/logout:
+    post:
+      operationId: authLogout
+      summary: Revoke the refresh token and clear its cookie
+      tags: [auth]
+      security: []
+      responses:
+        '200':
+          description: Logged out (idempotent; succeeds without a cookie too).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+  /api/auth/forgot-password:
+    post:
+      operationId: authForgotPassword
+      summary: Request a password reset email
+      description: >-
+        Always answers 200 with the same message whether or not the email is
+        registered, so the endpoint cannot be used to enumerate accounts.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/reset-password:
+    post:
+      operationId: authResetPassword
+      summary: Set a new password with a reset token
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/verify-email:
+    post:
+      operationId: authVerifyEmail
+      summary: Verify an email address
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/me:
+    get:
+      operationId: getMe
+      summary: The authenticated user
+      tags: [auth]
+      responses:
+        '200':
+          description: The current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/providers:
+    get:
+      operationId: listProviders
+      summary: List providers
+      tags: [providers]
+      security: []
+      parameters:
+        - name: business_type
+          in: query
+          schema:
+            type: string
+            enum: [doctor, salon, consultant, studio]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          description: 1-based page number; invalid values fall back to 1.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Page size (1-100); invalid values fall back to 20.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: A page of providers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createProvider
+      summary: Create the caller's provider profile
+      tags: [providers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProviderRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ProviderEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/me:
+    get:
+      operationId: getMyProvider
+      summary: The provider profile owned by the caller
+      tags: [providers]
+      responses:
+        '200':
+          $ref: '#/components/responses/ProviderEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: getProvider
+      summary: Get a provider
+      tags: [providers]
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ProviderEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: updateProvider
+      summary: Update a provider (owner or admin)
+      tags: [providers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProviderRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProviderEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteProvider
+      summary: Delete a provider (owner or admin)
+      tags: [providers]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: getProviderStats
+      summary: Booking statistics for a provider (owner or admin)
+      tags: [bookings]
+      responses:
+        '200':
+          description: Booking counts and revenue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stats]
+                properties:
+                  stats:
+                    $ref: '#/components/schemas/ProviderStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/bookings:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: listProviderBookings
+      summary: Bookings of a provider (owner or admin)
+      description: >-
+        Provider-facing view: customers are identified by the name they
+        entered only (no email, role or admin notes).
+      tags: [bookings]
+      parameters:
+        - name: status
+          in: query
+          description: Optional status filter.
+          schema:
+            $ref: '#/components/schemas/BookingStatus'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: The provider's bookings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bookings]
+                properties:
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderBooking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/providers/{providerId}/services:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: listProviderServices
+      summary: Services of a provider
+      tags: [services]
+      security: []
+      parameters:
+        - name: active_only
+          in: query
+          description: When `true`, only active services are returned.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/ServiceList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/services/:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    post:
+      operationId: createService
+      summary: Create a service (provider owner or admin)
+      description: Registered with a trailing slash; the slash-less form redirects.
+      tags: [services]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ServiceEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/services/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+      - $ref: '#/components/parameters/ResourceId'
+    put:
+      operationId: updateService
+      summary: Update a service (provider owner or admin)
+      tags: [services]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ServiceEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteService
+      summary: Delete a service (provider owner or admin)
+      tags: [services]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/services:
+    get:
+      operationId: listServices
+      summary: Search services
+      description: Same handler as `/api/services/search`. Defaults to active services.
+      tags: [services]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceName'
+        - $ref: '#/components/parameters/ServiceProviderFilter'
+        - $ref: '#/components/parameters/ServiceCategory'
+        - $ref: '#/components/parameters/MinPrice'
+        - $ref: '#/components/parameters/MaxPrice'
+        - $ref: '#/components/parameters/ServiceIsActive'
+      responses:
+        '200':
+          $ref: '#/components/responses/ServiceList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/services/search:
+    get:
+      operationId: searchServices
+      summary: Search services
+      tags: [services]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceName'
+        - $ref: '#/components/parameters/ServiceProviderFilter'
+        - $ref: '#/components/parameters/ServiceCategory'
+        - $ref: '#/components/parameters/MinPrice'
+        - $ref: '#/components/parameters/MaxPrice'
+        - $ref: '#/components/parameters/ServiceIsActive'
+      responses:
+        '200':
+          $ref: '#/components/responses/ServiceList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/providers/{providerId}/availability:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: getProviderAvailability
+      summary: Bookable slots of a provider for a service on a date
+      tags: [availability]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SlotDate'
+        - $ref: '#/components/parameters/SlotServiceId'
+        - $ref: '#/components/parameters/SlotServiceIdSnake'
+      responses:
+        '200':
+          $ref: '#/components/responses/AvailabilitySlots'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/availability:
+    get:
+      operationId: getAvailability
+      summary: Bookable slots (provider given as a query parameter)
+      tags: [availability]
+      security: []
+      parameters:
+        - name: providerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/SlotDate'
+        - $ref: '#/components/parameters/SlotServiceId'
+        - $ref: '#/components/parameters/SlotServiceIdSnake'
+      responses:
+        '200':
+          $ref: '#/components/responses/AvailabilitySlots'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/schedules:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: listSchedules
+      summary: Weekly schedules of a provider (owner or admin)
+      tags: [availability]
+      responses:
+        '200':
+          description: The provider's weekly schedules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schedules]
+                properties:
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Schedule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createSchedule
+      summary: Add a weekly schedule window (owner or admin)
+      tags: [availability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ScheduleEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/providers/{providerId}/schedules/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+      - $ref: '#/components/parameters/ResourceId'
+    put:
+      operationId: updateSchedule
+      summary: Replace a weekly schedule window (owner or admin)
+      tags: [availability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ScheduleEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteSchedule
+      summary: Delete a weekly schedule window (owner or admin)
+      tags: [availability]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/exceptions:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: listExceptions
+      summary: Date exceptions of a provider (owner or admin)
+      tags: [availability]
+      parameters:
+        - name: start_date
+          in: query
+          description: Inclusive lower bound (default today).
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: Inclusive upper bound (default three months from today).
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: The provider's exceptions in the date range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exceptions]
+                properties:
+                  exceptions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Exception'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createException
+      summary: Add a date exception (owner or admin)
+      tags: [availability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExceptionRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ExceptionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/providers/{providerId}/exceptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+      - $ref: '#/components/parameters/ResourceId'
+    put:
+      operationId: updateException
+      summary: Replace a date exception (owner or admin)
+      tags: [availability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExceptionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ExceptionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteException
+      summary: Delete a date exception (owner or admin)
+      tags: [availability]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/bookings:
+    get:
+      operationId: listMyBookings
+      summary: The caller's bookings
+      tags: [bookings]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: The caller's bookings, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bookings]
+                properties:
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomerBooking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createBooking
+      summary: Book a slot
+      description: >-
+        Free services are confirmed immediately. Paid services create a
+        pending booking together with a Midtrans payment, returned as
+        `payment`; the booking is confirmed by the payment webhook.
+      tags: [bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+      responses:
+        '201':
+          description: The booking (and its payment for paid services).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateBookingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/bookings/{bookingId}:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    get:
+      operationId: getMyBooking
+      summary: One of the caller's bookings
+      tags: [bookings]
+      responses:
+        '200':
+          description: The booking.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [booking]
+                properties:
+                  booking:
+                    $ref: '#/components/schemas/CustomerBooking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: rescheduleBooking
+      summary: Move one of the caller's bookings to another slot
+      tags: [bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleBookingRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/bookings/{bookingId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      operationId: cancelBooking
+      summary: Cancel one of the caller's bookings
+      tags: [bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelBookingRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/bookings/{bookingId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      operationId: confirmBooking
+      summary: Confirm a pending booking (provider owner or admin)
+      tags: [bookings]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/bookings/{bookingId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      operationId: completeBooking
+      summary: Mark a confirmed booking completed (provider owner or admin)
+      tags: [bookings]
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/bookings/{bookingId}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      operationId: createReview
+      summary: Review one of the caller's completed bookings
+      tags: [reviews]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReviewRequest'
+      responses:
+        '201':
+          description: The created review.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [review]
+                properties:
+                  review:
+                    $ref: '#/components/schemas/PublicReview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/providers/{providerId}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: listProviderReviews
+      summary: Reviews of a provider
+      tags: [reviews]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReviewLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReviewList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/providers/{providerId}/reviews/stats:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      operationId: getProviderReviewStats
+      summary: Rating summary of a provider
+      tags: [reviews]
+      security: []
+      responses:
+        '200':
+          description: Average rating and review count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stats]
+                properties:
+                  stats:
+                    $ref: '#/components/schemas/ReviewStats'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/reviews/me:
+    get:
+      operationId: listMyReviews
+      summary: Reviews written by the caller
+      tags: [reviews]
+      parameters:
+        - $ref: '#/components/parameters/ReviewLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReviewList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/payments/create-intent:
+    post:
+      operationId: createPaymentIntent
+      summary: Create a standalone Midtrans payment for a service
+      description: The amount is taken from the service price server-side; only IDR is supported.
+      tags: [payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntentRequest'
+      responses:
+        '201':
+          description: The created payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/payments/confirm:
+    post:
+      operationId: confirmPayment
+      summary: Refresh one of the caller's payments from Midtrans
+      tags: [payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPaymentRequest'
+      responses:
+        '200':
+          description: The payment's current status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentConfirmResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/payments/webhook:
+    post:
+      operationId: paymentWebhook
+      summary: Midtrans HTTP notification
+      description: >-
+        Authenticated by the Midtrans SHA-512 `signature_key`, not by a JWT.
+        Replays of an identical body answer `{"status":"duplicate"}`; all
+        effects are idempotent. A 5xx makes Midtrans retry.
+      tags: [payments]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookNotification'
+      responses:
+        '200':
+          description: Processed (`received`) or already processed (`duplicate`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookAck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/favorites/:
+    get:
+      operationId: listFavorites
+      summary: The caller's favourites
+      description: Registered with a trailing slash; the slash-less form redirects.
+      tags: [favorites]
+      responses:
+        '200':
+          description: The caller's favourites.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [favorites]
+                properties:
+                  favorites:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Favorite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/favorites/toggle:
+    post:
+      operationId: toggleFavorite
+      summary: Add or remove a favourite service or provider
+      description: >-
+        Known gap: a body with neither `serviceId` nor `providerId` currently
+        answers 500 rather than 400.
+      tags: [favorites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToggleFavoriteRequest'
+      responses:
+        '200':
+          description: Whether the favourite was added or removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToggleFavoriteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/promote:
+    post:
+      operationId: adminPromoteUser
+      summary: Promote a user to admin
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromoteRequest'
+      responses:
+        '200':
+          description: Promoted; an audit entry is recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/users:
+    get:
+      operationId: adminListUsers
+      summary: List all users
+      tags: [admin]
+      responses:
+        '200':
+          description: All users.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/audit:
+    get:
+      operationId: adminListAudit
+      summary: Admin audit log, newest first
+      tags: [admin]
+      responses:
+        '200':
+          description: Audit entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [audit]
+                properties:
+                  audit:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminAudit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/stats:
+    get:
+      operationId: adminStats
+      summary: Admin dashboard statistics (placeholder)
+      tags: [admin]
+      responses:
+        '200':
+          description: Placeholder statistics (see `AdminStats`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token from login, register or refresh.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: HttpOnly refresh token cookie set by login, register and refresh.
+
+  headers:
+    RefreshCookie:
+      description: '`refresh_token=<opaque>; Path=/; HttpOnly; SameSite=...` (Secure in production).'
+      schema:
+        type: string
+
+  parameters:
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      description: Page size (default 20, max 100).
+      schema:
+        type: integer
+        default: 20
+    ReviewLimit:
+      name: limit
+      in: query
+      description: Page size (default 10, max 50).
+      schema:
+        type: integer
+        default: 10
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    SlotDate:
+      name: date
+      in: query
+      description: Day to list slots for (default today).
+      schema:
+        type: string
+        format: date
+    SlotServiceId:
+      name: serviceId
+      in: query
+      description: The service to book; required (either spelling).
+      schema:
+        type: string
+        format: uuid
+    SlotServiceIdSnake:
+      name: service_id
+      in: query
+      description: Alternative spelling of `serviceId`.
+      schema:
+        type: string
+        format: uuid
+    ServiceName:
+      name: name
+      in: query
+      schema:
+        type: string
+    ServiceProviderFilter:
+      name: provider_id
+      in: query
+      schema:
+        type: string
+        format: uuid
+    ServiceCategory:
+      name: category
+      in: query
+      schema:
+        type: string
+    MinPrice:
+      name: min_price
+      in: query
+      schema:
+        type: number
+    MaxPrice:
+      name: max_price
+      in: query
+      schema:
+        type: number
+    ServiceIsActive:
+      name: is_active
+      in: query
+      description: Defaults to `true`.
+      schema:
+        type: boolean
+
+  responses:
+    BadRequest:
+      description: Invalid request (validation errors carry `details`).
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: '#/components/schemas/ValidationErrorResponse'
+              - $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing, invalid or expired credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated but not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflicts with existing state (e.g. an overlapping booking).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadGateway:
+      description: The payment provider request failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: The payment provider is not configured or unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Message:
+      description: Success with a human-readable message.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+    Ready:
+      description: Ready (`ok`), or `degraded` when only a non-critical dependency (Redis) is down.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReadinessResponse'
+    NotReady:
+      description: A critical dependency (Postgres) is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReadinessResponse'
+    AuthSuccess:
+      description: Access token and user; the `refresh_token` cookie is set.
+      headers:
+        Set-Cookie:
+          $ref: '#/components/headers/RefreshCookie'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthResponse'
+    ProviderEnvelope:
+      description: A provider.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [provider]
+            properties:
+              provider:
+                $ref: '#/components/schemas/PublicProvider'
+    ServiceEnvelope:
+      description: A service.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [service]
+            properties:
+              service:
+                $ref: '#/components/schemas/Service'
+    ServiceList:
+      description: Services.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [services]
+            properties:
+              services:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+    ScheduleEnvelope:
+      description: A weekly schedule window.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [schedule]
+            properties:
+              schedule:
+                $ref: '#/components/schemas/Schedule'
+    ExceptionEnvelope:
+      description: A date exception.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [exception]
+            properties:
+              exception:
+                $ref: '#/components/schemas/Exception'
+    AvailabilitySlots:
+      description: Bookable slots.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AvailabilitySlotsResponse'
+    ReviewList:
+      description: Reviews, newest first.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reviews]
+            properties:
+              reviews:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicReview'
+
+  schemas:
+    Date:
+      type: string
+      format: date
+      example: '2030-01-07'
+    Clock:
+      type: string
+      pattern: '^\d{2}:\d{2}$'
+      example: '09:00'
+    BookingStatus:
+      type: string
+      enum: [pending, confirmed, completed, cancelled, payment_failed]
+    BookingPaymentStatus:
+      type: string
+      enum: [unpaid, pending, paid, failed, not_required]
+    PaymentStatus:
+      type: string
+      enum: [created, pending, succeeded, failed, expired, cancelled, refunded]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    ValidationErrorResponse:
+      type: object
+      required: [error, details]
+      properties:
+        error:
+          type: string
+          example: validation failed
+        details:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: logged_out
+
+    LivenessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [alive]
+    ReadinessResponse:
+      type: object
+      required: [status, checked_at, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unavailable]
+        checked_at:
+          type: string
+          format: date-time
+        checks:
+          type: object
+          description: One entry per configured dependency (`postgres`, `redis`); empty when none.
+          additionalProperties:
+            type: object
+            required: [status, critical]
+            properties:
+              status:
+                type: string
+                enum: [ok, unavailable]
+              latency_ms:
+                type: integer
+                description: Present when the check succeeded.
+              critical:
+                type: boolean
+
+    User:
+      type: object
+      description: >-
+        Full user shape for administrators (`/api/admin/users`) and the caller
+        (`/api/me`, which returns only id, email, role and name).
+      required: [id, email, name, role]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [user, provider, admin]
+        isVerified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AuthUser:
+      type: object
+      required: [id, email, role]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, provider, admin]
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: JWT access token.
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    TokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: JWT access token.
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          minLength: 6
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    PublicProvider:
+      type: object
+      description: Public provider shape; the owner is identified by display name only.
+      required: [id, business_name, business_type, description, address, latitude, longitude, pricing_info, is_active, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        business_name:
+          type: string
+        business_type:
+          type: string
+          enum: [doctor, salon, consultant, studio]
+        description:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        pricing_info:
+          type: string
+          description: JSON document as a string.
+        is_active:
+          type: boolean
+        owner_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProviderListResponse:
+      type: object
+      required: [providers, pagination]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicProvider'
+        pagination:
+          type: object
+          required: [page, limit, total]
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+    CreateProviderRequest:
+      type: object
+      required: [business_name, business_type, address]
+      properties:
+        business_name:
+          type: string
+        business_type:
+          type: string
+          enum: [doctor, salon, consultant, studio]
+        description:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        pricing_info:
+          type: string
+    UpdateProviderRequest:
+      type: object
+      properties:
+        business_name:
+          type: string
+        business_type:
+          type: string
+          enum: [doctor, salon, consultant, studio]
+        description:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        pricing_info:
+          type: string
+        is_active:
+          type: boolean
+    ProviderStats:
+      type: object
+      required: [total_bookings, pending_bookings, completed_bookings, total_revenue]
+      properties:
+        total_bookings:
+          type: integer
+        pending_bookings:
+          type: integer
+        completed_bookings:
+          type: integer
+        total_revenue:
+          type: integer
+
+    Service:
+      type: object
+      description: >-
+        A provider's service. `provider` is an unpopulated placeholder object
+        (the association is not loaded); use `provider_id`.
+      required: [id, provider_id, name, description, duration, price, is_active, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+        provider:
+          type: object
+          description: Unpopulated placeholder; do not rely on its contents.
+        name:
+          type: string
+        description:
+          type: string
+        duration:
+          type: integer
+          description: Minutes.
+        price:
+          type: number
+          description: IDR.
+        is_active:
+          type: boolean
+        category:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateServiceRequest:
+      type: object
+      required: [name, duration, price]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        duration:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+          minimum: 0
+    UpdateServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        duration:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+          minimum: 0
+        is_active:
+          type: boolean
+
+    TimeSlot:
+      type: object
+      required: [date, start_time, end_time]
+      properties:
+        date:
+          $ref: '#/components/schemas/Date'
+        start_time:
+          $ref: '#/components/schemas/Clock'
+        end_time:
+          $ref: '#/components/schemas/Clock'
+    AvailabilitySlotsResponse:
+      type: object
+      required: [date, provider_id, service_id, available_slots, slots]
+      properties:
+        date:
+          $ref: '#/components/schemas/Date'
+        provider_id:
+          type: string
+          format: uuid
+        service_id:
+          type: string
+          format: uuid
+        available_slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSlot'
+        slots:
+          type: array
+          description: Same as `available_slots`.
+          items:
+            $ref: '#/components/schemas/TimeSlot'
+    Schedule:
+      type: object
+      required: [id, provider_id, day_of_week, start_time, end_time, is_available, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 = Sunday.
+        start_time:
+          $ref: '#/components/schemas/Clock'
+        end_time:
+          $ref: '#/components/schemas/Clock'
+        is_available:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Exception:
+      type: object
+      description: A date exception; null times mean the whole day.
+      required: [id, provider_id, date, start_time, end_time, is_available, reason, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+        date:
+          $ref: '#/components/schemas/Date'
+        start_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          nullable: true
+        end_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          nullable: true
+        is_available:
+          type: boolean
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateScheduleRequest:
+      type: object
+      required: [start_time, end_time]
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        start_time:
+          $ref: '#/components/schemas/Clock'
+        end_time:
+          $ref: '#/components/schemas/Clock'
+        is_available:
+          type: boolean
+          default: true
+          description: Omitted means available.
+    CreateExceptionRequest:
+      type: object
+      required: [date]
+      properties:
+        date:
+          $ref: '#/components/schemas/Date'
+        start_time:
+          type: string
+          description: HH:MM; omit both times for a full-day exception.
+        end_time:
+          type: string
+          description: HH:MM; omit both times for a full-day exception.
+        is_available:
+          type: boolean
+        reason:
+          type: string
+
+    CustomerBooking:
+      type: object
+      description: The customer's view of their own booking (admin notes are never exposed).
+      required: [id, provider_id, booking_date, start_time, end_time, status, payment_status]
+      properties:
+        id:
+          type: integer
+        provider_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+          description: Absent on the create response.
+        service_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+          description: Absent on the create response.
+        booking_date:
+          $ref: '#/components/schemas/Date'
+        start_time:
+          $ref: '#/components/schemas/Clock'
+        end_time:
+          $ref: '#/components/schemas/Clock'
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        payment_status:
+          $ref: '#/components/schemas/BookingPaymentStatus'
+        customer_notes:
+          type: string
+        cancellation_reason:
+          type: string
+        payment_id:
+          type: integer
+    ProviderBooking:
+      type: object
+      description: The provider's view of a booking; the customer is identified by name only.
+      required: [id, customer_name, booking_date, start_time, end_time, status, payment_status]
+      properties:
+        id:
+          type: integer
+        customer_name:
+          type: string
+        service_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+        booking_date:
+          $ref: '#/components/schemas/Date'
+        start_time:
+          $ref: '#/components/schemas/Clock'
+        end_time:
+          $ref: '#/components/schemas/Clock'
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        payment_status:
+          $ref: '#/components/schemas/BookingPaymentStatus'
+        customer_notes:
+          type: string
+        cancellation_reason:
+          type: string
+    CreateBookingRequest:
+      type: object
+      required: [providerId, serviceId, customerName, slot]
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        serviceId:
+          type: string
+          format: uuid
+        customerName:
+          type: string
+          maxLength: 255
+        slot:
+          $ref: '#/components/schemas/TimeSlot'
+    CreateBookingResponse:
+      type: object
+      required: [booking]
+      properties:
+        booking:
+          $ref: '#/components/schemas/CustomerBooking'
+        payment:
+          $ref: '#/components/schemas/Payment'
+    RescheduleBookingRequest:
+      type: object
+      required: [slot]
+      properties:
+        slot:
+          $ref: '#/components/schemas/TimeSlot'
+    CancelBookingRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    PublicReview:
+      type: object
+      description: Public review shape; the reviewer is identified by display name only.
+      required: [id, booking_id, provider_id, rating, comment, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        booking_id:
+          type: integer
+        provider_id:
+          type: string
+          format: uuid
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+        reviewer_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ReviewStats:
+      type: object
+      description: >-
+        Rating summary. The keys are Go field names (no JSON tags on the
+        struct); kept as-is for compatibility.
+      required: [AverageRating, TotalReviews]
+      properties:
+        AverageRating:
+          type: number
+        TotalReviews:
+          type: integer
+    CreateReviewRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+
+    Payment:
+      type: object
+      description: A Midtrans payment. `client_secret` is the Snap token for the checkout widget.
+      required: [id, created_at, updated_at, provider, order_id, intent_id, client_secret, amount, currency, status]
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        provider:
+          type: string
+          example: midtrans
+        order_id:
+          type: string
+        intent_id:
+          type: string
+          description: Legacy alias of `order_id`.
+        client_secret:
+          type: string
+        redirect_url:
+          type: string
+        transaction_id:
+          type: string
+        amount:
+          type: integer
+          description: IDR, no minor units.
+        currency:
+          type: string
+          enum: [IDR]
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+    CreateIntentRequest:
+      type: object
+      required: [providerId, serviceId]
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        serviceId:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          description: Only IDR is accepted (case-insensitive); defaults to IDR.
+    ConfirmPaymentRequest:
+      type: object
+      description: One of `order_id` or `client_secret` is required.
+      properties:
+        order_id:
+          type: string
+        client_secret:
+          type: string
+    PaymentConfirmResponse:
+      type: object
+      required: [status, transactionId, order_id]
+      properties:
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        transactionId:
+          type: string
+        order_id:
+          type: string
+    WebhookNotification:
+      type: object
+      description: Midtrans HTTP notification (subset of fields used).
+      required: [order_id, status_code, gross_amount, transaction_status, signature_key]
+      properties:
+        order_id:
+          type: string
+        status_code:
+          type: string
+        gross_amount:
+          type: string
+          example: '75000.00'
+        transaction_id:
+          type: string
+        transaction_status:
+          type: string
+          example: settlement
+        fraud_status:
+          type: string
+        signature_key:
+          type: string
+          description: SHA-512 of order_id + status_code + gross_amount + server key.
+    WebhookAck:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [received, duplicate]
+
+    Favorite:
+      type: object
+      required: [id, userId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: integer
+        serviceId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        service:
+          $ref: '#/components/schemas/Service'
+        provider:
+          type: object
+          description: The favourite provider record when `providerId` is set.
+    ToggleFavoriteRequest:
+      type: object
+      description: Exactly one of `serviceId` or `providerId`.
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+    ToggleFavoriteResponse:
+      type: object
+      required: [message, added]
+      properties:
+        message:
+          type: string
+        added:
+          type: boolean
+
+    PromoteRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    AdminAudit:
+      type: object
+      required: [id, created_at, actor_id, action, target, details]
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        actor_id:
+          type: integer
+        action:
+          type: string
+          example: promote_user
+        target:
+          type: string
+          example: user:someone@example.com
+        details:
+          type: string
+    AdminStats:
+      type: object
+      description: >-
+        Known gap: `/api/admin/stats` currently returns placeholder data
+        (`{"status":"ok","users":42}`), not live figures.
+      required: [status, users]
+      properties:
+        status:
+          type: string
+        users:
+          type: integer

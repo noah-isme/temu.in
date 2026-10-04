@@ -14,7 +14,7 @@ type AvailabilitySchedule struct {
 	DayOfWeek   int             `json:"day_of_week" gorm:"not null"`          // 0=Sunday, 1=Monday, ..., 6=Saturday
 	StartTime   string          `json:"start_time" gorm:"type:time;not null"` // HH:MM format
 	EndTime     string          `json:"end_time" gorm:"type:time;not null"`   // HH:MM format
-	IsAvailable bool            `json:"is_available" gorm:"default:true"`
+	IsAvailable bool            `json:"is_available"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }

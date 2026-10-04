@@ -1,10 +1,12 @@
 package provider
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"temu.in/backend/internal/auth"
 	"temu.in/backend/internal/validator"
 )
@@ -25,6 +27,7 @@ func (h *Handlers) Register(rg *gin.RouterGroup, jwtSecret string) {
 	// Protected routes (provider or admin)
 	protected := rg.Group("/")
 	protected.Use(auth.Middleware(jwtSecret))
+	protected.GET("/providers/me", h.Me)
 	protected.POST("/providers", h.Create)
 	protected.PUT("/providers/:providerId", h.Update)
 	protected.DELETE("/providers/:providerId", h.Delete)
@@ -75,7 +78,7 @@ func (h *Handlers) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"providers": providers,
+		"providers": newPublicProviders(providers),
 		"pagination": gin.H{
 			"page":  filters.Page,
 			"limit": filters.Limit,
@@ -92,7 +95,25 @@ func (h *Handlers) GetByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"provider": provider})
+	c.JSON(http.StatusOK, gin.H{"provider": NewPublicProvider(provider)})
+}
+
+// Me returns the provider profile owned by the authenticated user.
+func (h *Handlers) Me(c *gin.Context) {
+	claims, ok := h.getUserClaims(c)
+	if !ok {
+		return
+	}
+	provider, err := h.service.GetProviderByUserID(claims.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get provider"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"provider": NewPublicProvider(provider)})
 }
 
 func (h *Handlers) Create(c *gin.Context) {
@@ -116,7 +137,7 @@ func (h *Handlers) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"provider": provider})
+	c.JSON(http.StatusCreated, gin.H{"provider": NewPublicProvider(provider)})
 }
 
 func (h *Handlers) Update(c *gin.Context) {
@@ -149,7 +170,7 @@ func (h *Handlers) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"provider": provider})
+	c.JSON(http.StatusOK, gin.H{"provider": NewPublicProvider(provider)})
 }
 
 func (h *Handlers) Delete(c *gin.Context) {

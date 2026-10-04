@@ -1,8 +1,10 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -79,4 +81,18 @@ func (db *DB) MigrationVersion() (uint, bool, error) {
 
 func (db *DB) Close() error {
 	return db.sqlDB.Close()
+}
+
+// Pinger returns a readiness check that pings the database's connection pool.
+func Pinger(db *gorm.DB) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		if db == nil {
+			return errors.New("database is not configured")
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("get sql.DB: %w", err)
+		}
+		return sqlDB.PingContext(ctx)
+	}
 }

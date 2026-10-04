@@ -3,8 +3,9 @@ package notification
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"math"
+	"regexp"
 	"time"
 
 	"temu.in/backend/internal/models"
@@ -21,10 +22,15 @@ type WorkerConfig struct {
 type OutboxRepository interface {
 	ClaimBatch(ctx context.Context, now time.Time, limit int) ([]models.Notification, error)
 	MarkSent(ctx context.Context, notification models.Notification, providerMessageID string) error
-	MarkFailure(ctx context.Context, notification models.Notification, deliveryErr error, nextAttempt time.Time, maxAttempts int) error
+	// MarkFailure reports deadLettered=true only when this call moved the row
+	// to dead_letter.
+	MarkFailure(ctx context.Context, notification models.Notification, deliveryErr error, nextAttempt time.Time, maxAttempts int) (deadLettered bool, err error)
 }
 
 type Worker struct {
+	// Logger is optional; nil uses slog.Default().
+	Logger *slog.Logger
+
 	repo             OutboxRepository
 	sender           EmailSender
 	pollInterval     time.Duration
@@ -105,8 +111,48 @@ func (w *Worker) deliver(ctx context.Context, notification models.Notification) 
 		}
 	}
 
+	if err == nil {
+		err = errors.New("notification delivery failed")
+	}
+	// Provider errors can echo the recipient address; never log or persist it.
+	redacted := errors.New(redactEmails(err.Error()))
 	nextAttempt := time.Now().UTC().Add(w.retryDelay(notification.Attempts))
-	return w.repo.MarkFailure(ctx, notification, err, nextAttempt, w.maxAttempts)
+	deadLettered, markErr := w.repo.MarkFailure(ctx, notification, redacted, nextAttempt, w.maxAttempts)
+	if markErr != nil {
+		return markErr
+	}
+	attrs := []any{
+		"notification_id", notification.ID,
+		"type", notification.Type,
+		"template", notification.Template,
+		"attempts", notification.Attempts,
+		"error", redacted.Error(),
+	}
+	if notification.BookingID != nil {
+		attrs = append(attrs, "booking_id", *notification.BookingID)
+	}
+	if deadLettered {
+		w.logger().ErrorContext(ctx, "notification dead-lettered", attrs...)
+		return nil
+	}
+	if notification.Attempts < w.maxAttempts {
+		w.logger().WarnContext(ctx, "notification delivery failed, scheduled retry", append(attrs, "next_attempt_at", nextAttempt)...)
+	}
+	return nil
+}
+
+func (w *Worker) logger() *slog.Logger {
+	if w.Logger != nil {
+		return w.Logger
+	}
+	return slog.Default()
+}
+
+var emailPattern = regexp.MustCompile(`[^\s@"]+@[^\s@"]+`)
+
+// redactEmails replaces anything shaped like an email address with [redacted].
+func redactEmails(s string) string {
+	return emailPattern.ReplaceAllString(s, "[redacted]")
 }
 
 func (w *Worker) retryDelay(attempt int) time.Duration {
@@ -129,7 +175,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		return errors.New("notification worker is unavailable")
 	}
 	if err := w.ProcessOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("notification worker: %v", err)
+		w.logger().ErrorContext(ctx, "notification worker cycle failed", "error", redactEmails(err.Error()))
 	}
 
 	ticker := time.NewTicker(w.pollInterval)
@@ -140,7 +186,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := w.ProcessOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Printf("notification worker: %v", err)
+				w.logger().ErrorContext(ctx, "notification worker cycle failed", "error", redactEmails(err.Error()))
 			}
 		}
 	}

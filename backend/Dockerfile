@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.6
-FROM golang:1.24-alpine AS builder
+FROM golang:1.27.1-alpine AS builder
 
 WORKDIR /app
 
@@ -10,7 +10,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/api ./cmd/api
 
-FROM gcr.io/distroless/base-debian12
+# CGO_ENABLED=0 binary: distroless/static is enough. Runs as uid/gid 65532.
+FROM gcr.io/distroless/static-debian12:nonroot
 
 ENV APP_ENV=production
 ENV PORT=8080
@@ -18,5 +19,7 @@ ENV PORT=8080
 COPY --from=builder /bin/api /bin/api
 
 EXPOSE 8080
+
+USER nonroot:nonroot
 
 ENTRYPOINT ["/bin/api"]

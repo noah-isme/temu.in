@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -56,5 +57,44 @@ func TestSendGridProviderRequiresConfiguration(t *testing.T) {
 	provider := NewSendGridProvider("", "no-reply@example.test", nil)
 	if _, err := provider.Send(context.Background(), EmailMessage{To: "customer@example.test"}); err != ErrProviderNotConfigured {
 		t.Fatalf("error = %v, want ErrProviderNotConfigured", err)
+	}
+}
+
+// sendAndCapture posts one message through provider to an httptest server and
+// returns the decoded request body SendGrid would have received.
+func sendAndCapture(t *testing.T, sandbox bool) map[string]interface{} {
+	t.Helper()
+	var body map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	provider := NewSendGridProvider("test-key", "no-reply@example.test", nil)
+	provider.Endpoint = server.URL + "/v3/mail/send"
+	provider.HTTPClient = server.Client()
+	provider.SandboxMode = sandbox
+	if _, err := provider.Send(context.Background(), EmailMessage{To: "customer@example.test", Subject: "s", Text: "t", HTML: "<p>t</p>"}); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestSendGridSandboxMode(t *testing.T) {
+	body := sendAndCapture(t, true)
+	settings, ok := body["mail_settings"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("mail_settings missing: %v", body)
+	}
+	sandbox, ok := settings["sandbox_mode"].(map[string]interface{})
+	if !ok || sandbox["enable"] != true {
+		t.Fatalf("mail_settings.sandbox_mode.enable = %v, want true", settings["sandbox_mode"])
+	}
+
+	if body := sendAndCapture(t, false); body["mail_settings"] != nil {
+		t.Fatalf("mail_settings present without sandbox mode: %v", body["mail_settings"])
 	}
 }

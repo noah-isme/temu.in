@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -10,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	"temu.in/backend/internal/cache"
 	"temu.in/backend/internal/config"
 	"temu.in/backend/internal/database"
 	"temu.in/backend/internal/middleware"
@@ -26,11 +30,26 @@ type Server struct {
 
 func New(cfg *config.Config) *Server {
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(
+		middleware.RequestID(),
+		middleware.AccessLog(slog.Default()),
+		gin.CustomRecovery(func(c *gin.Context, err any) {
+			// debug.Stack runs inside the recovery callback, so it is the panicking goroutine's stack.
+			slog.Error("panic recovered",
+				"error", fmt.Sprint(err),
+				"stack", string(debug.Stack()),
+				"request_id", middleware.RequestIDFromGin(c),
+				"method", c.Request.Method,
+				"path", c.Request.URL.Path,
+			)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal"})
+		}),
+	)
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", middleware.RequestIDHeader},
+		ExposeHeaders:    []string{middleware.RequestIDHeader},
 		AllowCredentials: true,
 		MaxAge:           12 * 60 * 60, // 12 hours
 	}))
@@ -40,12 +59,12 @@ func New(cfg *config.Config) *Server {
 }
 
 func (s *Server) connectRedis() error {
-	options, err := redis.ParseURL(s.cfg.RedisURL)
+	client, err := cache.NewClient(s.cfg.RedisURL)
 	if err != nil {
-		return fmt.Errorf("parse redis url: %w", err)
+		return fmt.Errorf("create redis client: %w", err)
 	}
 
-	s.cache = redis.NewClient(options)
+	s.cache = client
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -75,7 +94,8 @@ func (s *Server) Run() error {
 	}
 
 	rateLimiter := middleware.NewRateLimiter(s.cache, s.cfg.RateLimitRequests, s.cfg.RateLimitWindow)
-	s.router.Use(rateLimiter.Middleware())
+	// Orchestrator probes must never be 429'd.
+	s.router.Use(middleware.SkipPaths(middleware.HealthPathPrefixes, rateLimiter.Middleware()))
 
 	r := router.New(s.router, s.cfg, s.db, s.cache)
 	r.RegisterAll()

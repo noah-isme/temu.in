@@ -10,8 +10,11 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# Unprivileged nginx: runs as uid 101 and listens on 8080 (not 80).
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 8080
+# Already the base image's default; explicit so scanners (Trivy DS-0002) see it.
+USER 101
 CMD ["nginx", "-g", "daemon off;"]

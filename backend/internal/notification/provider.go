@@ -38,6 +38,10 @@ type SendGridProvider struct {
 	Endpoint    string
 	HTTPClient  *http.Client
 	TemplateIDs map[string]string
+	// SandboxMode asks SendGrid to validate the request and answer 200
+	// without delivering anything (mail_settings.sandbox_mode). Used by the
+	// opt-in sandbox test; production leaves it false.
+	SandboxMode bool
 }
 
 func NewSendGridProvider(apiKey, fromEmail string, templateIDs map[string]string) *SendGridProvider {
@@ -72,6 +76,11 @@ func (p *SendGridProvider) Send(ctx context.Context, message EmailMessage) (stri
 		"personalizations": []map[string]interface{}{personalization},
 		"from":             map[string]string{"email": p.FromEmail},
 		"subject":          message.Subject,
+	}
+	if p.SandboxMode {
+		body["mail_settings"] = map[string]interface{}{
+			"sandbox_mode": map[string]bool{"enable": true},
+		}
 	}
 	if message.TemplateID != "" {
 		body["template_id"] = message.TemplateID

@@ -3,7 +3,7 @@ package booking
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"math"
 	"time"
 
@@ -20,6 +20,9 @@ var (
 	ErrPaymentUnavailable = errors.New("payment provider is unavailable")
 	ErrSlotUnavailable    = errors.New("requested time slot is not available")
 	ErrBookingConflict    = errors.New("booking conflicts with existing reservation")
+	// ErrNotReschedulable means the booking is missing, not the caller's, or
+	// already cancelled or completed at the moment of the write.
+	ErrNotReschedulable = errors.New("booking cannot be rescheduled")
 )
 
 type CreateBookingInput struct {
@@ -41,8 +44,34 @@ type NotificationService interface {
 	SendBookingReminder(ctx context.Context, booking *models.Booking, user *models.User) error
 }
 
+// bookingStore is the persistence surface the booking service and handlers
+// depend on. *Repository satisfies it; tests use an in-memory fake.
+type bookingStore interface {
+	Create(b *models.Booking) error
+	CreateWithPayment(b *models.Booking, p *models.Payment) error
+	Reschedule(id, userID uint, date, start, end time.Time) error
+	FindByID(id uint) (*models.Booking, error)
+	FindByIDForUser(id uint, userID uint) (*models.Booking, error)
+	ListByUser(userID uint, limit, offset int) ([]models.Booking, error)
+	UpdateStatus(id uint, status string, reason string) error
+	CheckConflict(providerID string, date time.Time, startTime, endTime time.Time, excludeID uint) (bool, error)
+	GetProviderStats(providerID string) (*models.ProviderStats, error)
+	ListByProviderWithNames(providerID, status string, limit, offset int) ([]models.Booking, error)
+	ListByUserWithNames(userID uint, limit, offset int) ([]models.Booking, error)
+	FindByIDForUserWithNames(id uint, userID uint) (*models.Booking, error)
+}
+
+// SlotInvalidator drops cached availability slots for a provider after a
+// booking mutation. *availability.Service satisfies it. It returns nothing on
+// purpose: invalidation is best-effort and can never turn a successful booking
+// mutation into an error (the cache TTL bounds any staleness).
+type SlotInvalidator interface {
+	InvalidateProviderSlots(ctx context.Context, providerID string)
+}
+
 type Service struct {
-	repo            *Repository
+	repo            bookingStore
+	slotInvalidator SlotInvalidator
 	availabilitySvc AvailabilityService
 	notificationSvc NotificationService
 	userRepo        UserRepo
@@ -87,6 +116,18 @@ func NewServiceWithFullDeps(repo *Repository, paymentRepo *payment.Repository, a
 	}
 }
 
+// WithSlotInvalidator sets the optional slot-cache invalidator and returns s.
+func (s *Service) WithSlotInvalidator(inv SlotInvalidator) *Service {
+	s.slotInvalidator = inv
+	return s
+}
+
+func (s *Service) invalidateSlots(ctx context.Context, providerID string) {
+	if s.slotInvalidator != nil && providerID != "" {
+		s.slotInvalidator.InvalidateProviderSlots(ctx, providerID)
+	}
+}
+
 func (s *Service) notifyConfirmation(ctx context.Context, booking *models.Booking) {
 	if s.notificationSvc == nil || s.userRepo == nil || s.providerSvc == nil {
 		return
@@ -103,7 +144,7 @@ func (s *Service) notifyConfirmation(ctx context.Context, booking *models.Bookin
 	}
 
 	if err := s.notificationSvc.SendBookingConfirmation(ctx, booking, user, provider); err != nil {
-		log.Printf("queue booking confirmation notifications: %v", err)
+		slog.WarnContext(ctx, "queue booking confirmation notifications failed", "booking_id", booking.ID, "error", err)
 	}
 }
 
@@ -123,7 +164,7 @@ func (s *Service) notifyCancellation(ctx context.Context, booking *models.Bookin
 	}
 
 	if err := s.notificationSvc.SendBookingCancellation(ctx, booking, user, provider); err != nil {
-		log.Printf("queue booking cancellation notifications: %v", err)
+		slog.WarnContext(ctx, "queue booking cancellation notifications failed", "booking_id", booking.ID, "error", err)
 	}
 }
 
@@ -213,6 +254,7 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 			}
 			return nil, nil, err
 		}
+		s.invalidateSlots(ctx, booking.ProviderID)
 		return booking, p, nil
 	}
 
@@ -224,6 +266,7 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 		}
 		return nil, nil, err
 	}
+	s.invalidateSlots(ctx, booking.ProviderID)
 
 	s.notifyConfirmation(ctx, booking)
 
@@ -231,21 +274,51 @@ func (s *Service) CreateBooking(ctx context.Context, input CreateBookingInput) (
 }
 
 func (s *Service) GetBookingByID(ctx context.Context, id uint, userID uint) (*models.Booking, error) {
-	booking, err := s.repo.FindByIDForUser(id, userID)
+	booking, err := s.repo.FindByIDForUserWithNames(id, userID)
 	if err != nil {
 		return nil, ErrBookingNotFound
 	}
 	return booking, nil
 }
 
-func (s *Service) ListUserBookings(ctx context.Context, userID uint, limit, offset int) ([]models.Booking, error) {
+// clampPage applies the shared list pagination bounds: limit defaults to 20
+// and is capped at 100; a negative offset becomes 0.
+func clampPage(limit, offset int) (int, int) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	return s.repo.ListByUser(userID, limit, offset)
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+func (s *Service) ListUserBookings(ctx context.Context, userID uint, limit, offset int) ([]models.Booking, error) {
+	limit, offset = clampPage(limit, offset)
+	return s.repo.ListByUserWithNames(userID, limit, offset)
+}
+
+func isBookingStatus(status string) bool {
+	switch status {
+	case models.BookingStatusPending, models.BookingStatusConfirmed, models.BookingStatusCompleted,
+		models.BookingStatusCancelled, models.BookingStatusPaymentFailed:
+		return true
+	}
+	return false
+}
+
+// ListProviderBookings lists a provider's bookings, optionally filtered by
+// status (empty = all). An unknown status is ErrInvalidInput. Authorization is
+// the caller's responsibility (handlers use auth.RequireProviderAccess).
+func (s *Service) ListProviderBookings(ctx context.Context, providerID, status string, limit, offset int) ([]models.Booking, error) {
+	if providerID == "" || (status != "" && !isBookingStatus(status)) {
+		return nil, ErrInvalidInput
+	}
+	limit, offset = clampPage(limit, offset)
+	return s.repo.ListByProviderWithNames(providerID, status, limit, offset)
 }
 
 func (s *Service) CancelBooking(ctx context.Context, id uint, userID uint, reason string) error {
@@ -265,6 +338,7 @@ func (s *Service) CancelBooking(ctx context.Context, id uint, userID uint, reaso
 	if err := s.repo.UpdateStatus(id, models.BookingStatusCancelled, reason); err != nil {
 		return err
 	}
+	s.invalidateSlots(ctx, booking.ProviderID)
 
 	s.notifyCancellation(ctx, booking)
 
@@ -278,7 +352,26 @@ func (s *Service) RescheduleBooking(ctx context.Context, id uint, userID uint, n
 	}
 
 	if booking.Status == models.BookingStatusCancelled || booking.Status == models.BookingStatusCompleted {
-		return errors.New("cannot reschedule cancelled or completed booking")
+		return ErrNotReschedulable
+	}
+
+	// The new range must match the booked service's duration, exactly as
+	// CreateBooking requires. Bookings without a service (no catalog entry to
+	// measure against) keep the free-form range.
+	if booking.ServiceID != nil && *booking.ServiceID != "" {
+		if s.serviceCatalog == nil {
+			return ErrInvalidInput
+		}
+		selectedService, err := s.serviceCatalog.GetService(*booking.ServiceID)
+		if err != nil || selectedService == nil {
+			return ErrServiceNotFound
+		}
+		expectedEnd := newStartTime.Add(time.Duration(selectedService.Duration) * time.Minute)
+		if selectedService.Duration <= 0 || !newStartTime.Before(newEndTime) || !expectedEnd.Equal(newEndTime) {
+			return ErrInvalidInput
+		}
+	} else if !newStartTime.Before(newEndTime) {
+		return ErrInvalidInput
 	}
 
 	// Check availability
@@ -303,16 +396,16 @@ func (s *Service) RescheduleBooking(ctx context.Context, id uint, userID uint, n
 		return ErrBookingConflict
 	}
 
-	booking.BookingDate = newDate
-	booking.StartTime = newStartTime
-	booking.EndTime = newEndTime
-
-	if err := s.repo.Update(booking); err != nil {
+	// One guarded, column-scoped write: it never touches status or payment
+	// columns, and fails with ErrNotReschedulable if the booking was cancelled
+	// or completed since it was loaded.
+	if err := s.repo.Reschedule(id, userID, newDate, newStartTime, newEndTime); err != nil {
 		if IsConflictError(err) {
 			return ErrBookingConflict
 		}
 		return err
 	}
+	s.invalidateSlots(ctx, booking.ProviderID)
 	return nil
 }
 
@@ -332,6 +425,7 @@ func (s *Service) ConfirmBooking(ctx context.Context, id uint) error {
 	if err := s.repo.UpdateStatus(id, models.BookingStatusConfirmed, ""); err != nil {
 		return err
 	}
+	s.invalidateSlots(ctx, booking.ProviderID)
 
 	updatedBooking, err := s.repo.FindByID(id)
 	if err == nil {
@@ -354,7 +448,11 @@ func (s *Service) CompleteBooking(ctx context.Context, id uint) error {
 		return errors.New("payment must succeed before completion")
 	}
 
-	return s.repo.UpdateStatus(id, models.BookingStatusCompleted, "")
+	if err := s.repo.UpdateStatus(id, models.BookingStatusCompleted, ""); err != nil {
+		return err
+	}
+	s.invalidateSlots(ctx, booking.ProviderID)
+	return nil
 }
 
 func (s *Service) GetProviderStats(ctx context.Context, providerID string) (*models.ProviderStats, error) {

@@ -84,6 +84,6 @@ Fokus: monitoring, email templates, worker queue, build & deploy pipeline.
 ## Developer notes — local dev & MSW
 
 - The frontend includes MSW (Mock Service Worker) to allow frontend-first development without a running backend. Toggle MSW using the Vite env variable `VITE_USE_MSW` (set to `true` to use mocks, `false` to call the real backend).
-- Backend menggunakan prefix canonical `/api` untuk endpoint aplikasi (misalnya `/api/providers`). Endpoint health tersedia pada `/health/live`, `/health/ready`, `/api/health/live`, dan `/api/health/ready`. Handler data mock pada root backend sudah dihapus agar tidak bertabrakan dengan route produksi.
+- Backend menggunakan prefix canonical `/api` untuk endpoint aplikasi (misalnya `/api/providers`). Endpoint health tersedia pada `/health/live`, `/health/ready`, `/api/health/live`, dan `/api/health/ready`. Readiness mem-ping Postgres (kritis → 503 `status:"unavailable"` bila gagal) dan Redis (non-kritis → 200 `status:"degraded"` bila gagal); body hanya berisi status generik per dependensi (`checks.<nama>.status`, `latency_ms`, `critical`), detail error hanya di log. Path health tidak terkena rate limit. Handler data mock pada root backend sudah dihapus agar tidak bertabrakan dengan route produksi.
 
 If you run into 404s for frontend requests during local development, either enable MSW in the frontend or ensure the backend is running and reachable at the host/port configured in `VITE_API_URL`.

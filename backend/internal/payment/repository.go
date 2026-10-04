@@ -68,6 +68,11 @@ func (r *Repository) UpdateProviderStatus(id uint, status, transactionID string)
 		if !models.CanTransitionPaymentStatus(p.Status, status) {
 			return nil
 		}
+		// Replays carry the same state: skip the write so updated_at is not
+		// bumped and the row stays byte-identical.
+		if p.Status == status && (transactionID == "" || transactionID == p.TransactionID) {
+			return nil
+		}
 		updates := map[string]interface{}{"status": status}
 		if transactionID != "" {
 			updates["transaction_id"] = transactionID

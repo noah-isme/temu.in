@@ -31,11 +31,14 @@ type Booking struct {
 	ProviderID      string          `gorm:"not null;index:idx_bookings_provider_date" json:"provider_id"`
 	ServiceProvider ServiceProvider `json:"service_provider" gorm:"foreignKey:ProviderID"`
 	ServiceID       *string         `json:"service_id,omitempty"`
+	// Service is preloaded only by the read-only "*WithNames" finders that
+	// build response DTOs; write paths never populate it.
+	Service *Service `json:"-" gorm:"foreignKey:ServiceID"`
 
 	CustomerName string    `json:"customer_name"`
 	BookingDate  time.Time `gorm:"type:date;index:idx_bookings_provider_date" json:"booking_date"`
-	StartTime    time.Time `gorm:"type:time" json:"start_time"`
-	EndTime      time.Time `gorm:"type:time" json:"end_time"`
+	StartTime    time.Time `gorm:"type:time;serializer:clock" json:"start_time"`
+	EndTime      time.Time `gorm:"type:time;serializer:clock" json:"end_time"`
 	Slot         string    `json:"slot,omitempty"`
 
 	Status             string `gorm:"type:varchar(20);default:'pending';index:idx_bookings_status" json:"status"`

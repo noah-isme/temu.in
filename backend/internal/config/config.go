@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -9,6 +10,7 @@ import (
 
 type Config struct {
 	AppEnv                         string        `env:"APP_ENV,notEmpty"`
+	LogLevel                       string        `env:"LOG_LEVEL" envDefault:"info"`
 	Port                           int           `env:"PORT" envDefault:"8080"`
 	DatabaseURL                    string        `env:"DATABASE_URL,notEmpty"`
 	RedisURL                       string        `env:"REDIS_URL,notEmpty"`
@@ -27,6 +29,7 @@ type Config struct {
 	MidtransBaseURL                string        `env:"MIDTRANS_BASE_URL" envDefault:"https://api.sandbox.midtrans.com"`
 	AllowedOrigins                 []string      `env:"ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:5173,http://localhost:3000"`
 	RateLimitRequests              int           `env:"RATE_LIMIT_REQUESTS" envDefault:"100"`
+	FrontendBaseURL                string        `env:"FRONTEND_BASE_URL" envDefault:"http://localhost:5173"`
 	RateLimitWindow                time.Duration `env:"RATE_LIMIT_WINDOW" envDefault:"1m"`
 }
 
@@ -35,6 +38,7 @@ func Load() (*Config, error) {
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("parse env: %w", err)
 	}
+	cfg.FrontendBaseURL = strings.TrimRight(strings.TrimSpace(cfg.FrontendBaseURL), "/")
 
 	return cfg, nil
 }
