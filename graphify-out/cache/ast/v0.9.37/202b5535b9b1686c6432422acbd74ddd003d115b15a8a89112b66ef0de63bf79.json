@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_backend_internal_database_migrations_000002_add_search_auth_tables_down_sql", "label": "000002_add_search_auth_tables.down.sql", "file_type": "code", "source_file": "backend/internal/database/migrations/000002_add_search_auth_tables.down.sql", "source_location": null}], "edges": []}
